@@ -6,19 +6,15 @@ type Props = {
 };
 
 export function DetectorBadge({ detector, sample }: Props) {
-  const label =
-    detector === "gemini" ? "Gemini" : detector === "preview" ? "Preview" : "Mock";
-  const tone =
-    detector === "gemini"
-      ? "bg-emerald-400 text-black"
-      : detector === "preview"
-        ? "bg-white/20 text-white"
-        : "bg-amber-400 text-black";
+  const showDetector = detector === "mock";
+  if (!showDetector && !sample) return null;
   return (
     <span className="inline-flex items-center gap-1.5">
-      <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${tone}`}>
-        {label}
-      </span>
+      {showDetector ? (
+        <span className="rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-black">
+          Mock
+        </span>
+      ) : null}
       {sample ? (
         <span className="rounded-full bg-violet-400 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-black">
           Sample

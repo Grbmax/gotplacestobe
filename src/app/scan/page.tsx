@@ -3,14 +3,12 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { DetectorBadge } from "@/components/DetectorBadge";
-import { IdentityChip } from "@/components/IdentityChip";
 import { SurfacePrompt } from "@/components/SurfacePrompt";
 import { Viewfinder } from "@/components/Viewfinder";
-import { citationLines } from "@/lib/articleVi";
 import { useIdentity } from "@/lib/IdentityContext";
 import {
-  escalationSentence,
   roomLabel,
+  roomSurfaceLabel,
   severityFromRatio,
   severityTextClass,
   surfaceLabel,
@@ -165,7 +163,6 @@ export default function ScanPage() {
           analyzing={analyzing}
           frozenUrl={frozenUrl}
           resultDetections={resultDets}
-          resultDetector={resultScan?.detector ?? null}
           ghostUrl={ghostOn ? ghostUrl : null}
         />
       </div>
@@ -176,8 +173,7 @@ export default function ScanPage() {
             SCAN
           </Link>
           <div className="flex items-center gap-2">
-            <IdentityChip />
-            {ghostUrl && (
+            {ghostUrl && !resultScan && (
               <button
                 type="button"
                 onClick={() => setGhostOn((v) => !v)}
@@ -196,34 +192,28 @@ export default function ScanPage() {
             )}
           </div>
         </div>
-        <div className="pointer-events-auto">
-          <SurfacePrompt room={room} surface={surface} reason={reason} hint={alignmentHint} />
-        </div>
+        {!resultScan && (
+          <div className="pointer-events-auto">
+            <SurfacePrompt room={room} surface={surface} reason={reason} hint={alignmentHint} />
+          </div>
+        )}
       </div>
 
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black via-black/80 to-transparent p-4 pb-6 pt-16">
         <div className="pointer-events-auto space-y-3">
           {resultScan && (
             <div className="rounded-2xl bg-zinc-900/95 p-4">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-400">Finding</p>
-                <DetectorBadge detector={resultScan.detector} sample={resultScan.isSample} />
-              </div>
-              <p className="mt-2 text-sm leading-relaxed">{resultScan.finding}</p>
-              {citationLines(resultScan.detections).map((c) => (
-                <p key={c} className="mt-1 text-[11px] leading-snug text-amber-200">
-                  {c}
-                </p>
-              ))}
-              {resultScan.escalations?.length
-                ? resultScan.escalations.map((e) => (
-                    <p key={`${e.cls}-${e.to}`} className="mt-2 text-xs leading-snug text-rose-300">
-                      {escalationSentence(e)}
-                    </p>
-                  ))
-                : null}
+              {(resultScan.detector === "mock" || resultScan.isSample) && (
+                <div className="mb-2">
+                  <DetectorBadge detector={resultScan.detector} sample={resultScan.isSample} />
+                </div>
+              )}
+              <p className="text-sm leading-relaxed">{resultScan.finding}</p>
               <p className={`mt-2 text-xs ${severityTextClass(severityFromRatio(resultScan.totalAffectedRatio))}`}>
                 {thisFrameFlaggedCopy(resultScan.totalAffectedRatio)}
+              </p>
+              <p className="mt-3 text-sm font-medium text-emerald-200">
+                Now point at {roomSurfaceLabel(room, surface)}
               </p>
               <button
                 type="button"

@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BoxOverlay } from "@/components/BoxOverlay";
-import { DetectorBadge } from "@/components/DetectorBadge";
 import { livePreview } from "@/lib/livePreview";
 import type { Detection } from "@/lib/types";
 
@@ -10,7 +9,6 @@ type Props = {
   onCapture: (dataUrl: string) => void;
   analyzing: boolean;
   resultDetections?: Detection[] | null;
-  resultDetector?: "gemini" | "mock" | null;
   frozenUrl?: string | null;
   /** Previous scan of this surface, shown faint over the live feed so the shot lines up. */
   ghostUrl?: string | null;
@@ -20,7 +18,6 @@ export function Viewfinder({
   onCapture,
   analyzing,
   resultDetections,
-  resultDetector,
   frozenUrl,
   ghostUrl,
 }: Props) {
@@ -56,14 +53,17 @@ export function Viewfinder({
     };
   }, [stream]);
 
-  async function startCamera() {
+  const startCamera = useCallback(async () => {
     setError(null);
     try {
       const media = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: { ideal: "environment" } },
         audio: false,
       });
-      setStream(media);
+      setStream((prev) => {
+        prev?.getTracks().forEach((t) => t.stop());
+        return media;
+      });
       setStarted(true);
       const video = videoRef.current;
       if (video) {
@@ -75,7 +75,11 @@ export function Viewfinder({
       setError("Camera permission denied. Allow camera access and retry.");
       setStarted(false);
     }
-  }
+  }, [measure]);
+
+  useEffect(() => {
+    void startCamera();
+  }, [startCamera]);
 
   useEffect(() => {
     if (!started || analyzing || frozenUrl) return;
@@ -175,26 +179,14 @@ export function Viewfinder({
       {!started && !error && !frozenUrl && (
         <div className="absolute inset-0 z-20 grid place-items-center bg-zinc-950 p-6 text-center text-white">
           <div>
-            <p className="text-lg font-medium">Scan a surface</p>
-            <p className="mt-2 text-sm text-white/60">
-              Use the camera, or upload a photo/frame for Gemini to label mold, water, cracks, and peeling.
-            </p>
-            <div className="mt-6 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
-              <button
-                type="button"
-                onClick={startCamera}
-                className="rounded-full bg-emerald-400 px-6 py-3 text-sm font-semibold text-black"
-              >
-                Start camera
-              </button>
-              <button
-                type="button"
-                onClick={() => fileRef.current?.click()}
-                className="rounded-full border border-zinc-600 px-6 py-3 text-sm font-semibold text-white"
-              >
-                Upload photo
-              </button>
-            </div>
+            <p className="text-sm text-white/70">Opening camera…</p>
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              className="mt-4 text-xs text-zinc-400 underline underline-offset-4"
+            >
+              Upload instead
+            </button>
           </div>
         </div>
       )}
@@ -259,15 +251,9 @@ export function Viewfinder({
         />
       )}
 
-      <div className="absolute left-3 top-3 z-10">
-        <DetectorBadge detector={showResult && resultDetector ? resultDetector : "preview"} />
-      </div>
-
       {analyzing && (
         <div className="absolute inset-0 z-30 grid place-items-center bg-black/50">
-          <p className="rounded-full bg-white px-4 py-2 text-sm font-medium text-black">
-            Analyzing with Gemini…
-          </p>
+          <p className="rounded-full bg-white px-4 py-2 text-sm font-medium text-black">Looking…</p>
         </div>
       )}
 
@@ -276,9 +262,9 @@ export function Viewfinder({
           <button
             type="button"
             onClick={() => fileRef.current?.click()}
-            className="rounded-full border border-white/40 bg-black/50 px-4 py-2 text-xs font-medium text-white"
+            className="rounded-full border border-white/40 bg-black/50 px-3 py-2 text-[11px] text-white/80"
           >
-            Upload
+            Upload instead
           </button>
           <button
             type="button"

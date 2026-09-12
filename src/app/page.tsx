@@ -16,6 +16,12 @@ import {
 } from "@/lib/labels";
 import type { Property } from "@/lib/types";
 
+const DEMO_PROPERTY_ID = "prop_sample_beacon";
+
+function isDemoHouse(property: Property) {
+  return Boolean(property.isSample) || property.id === DEMO_PROPERTY_ID;
+}
+
 type Summary = {
   property: Property;
   lastScannedAt: string | null;
@@ -109,11 +115,11 @@ export default function HomePage() {
   const visible = useMemo(() => {
     if (!rows) return [];
     if (showAll) return rows;
-    return rows.filter((r) => r.property.isSample || r.property.createdBy === identity.id);
+    return rows.filter((r) => isDemoHouse(r.property) || r.property.createdBy === identity.id);
   }, [rows, showAll, identity.id]);
 
   const hiddenCount = rows ? rows.length - visible.length : 0;
-  const walkProperty = visible.find((row) => !row.property.isSample)?.property;
+  const walkProperty = visible.find((row) => !isDemoHouse(row.property))?.property;
 
   return (
     <main className="mx-auto min-h-dvh max-w-md px-5 pb-28 pt-8 text-white">
@@ -195,7 +201,7 @@ export default function HomePage() {
               <li key={property.id}>
                 <div
                   className={`rounded-2xl border bg-zinc-900 ${
-                    property.isSample ? "border-violet-400/40" : "border-zinc-800"
+                    isDemoHouse(property) ? "border-violet-400/40" : "border-zinc-800"
                   }`}
                 >
                   <Link href={`/report/${property.id}`} className="block p-4 transition hover:border-zinc-600">
@@ -203,19 +209,19 @@ export default function HomePage() {
                       <div>
                         <div className="flex items-center gap-2">
                           <p className="text-lg font-medium">{property.label}</p>
-                          {property.isSample && (
+                          {isDemoHouse(property) && (
                             <span className="rounded-full bg-violet-400 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-black">
                               Demo report
                             </span>
                           )}
                         </div>
                         <p className="mt-1 text-xs text-zinc-500">
-                          {property.isSample
+                          {isDemoHouse(property)
                             ? "Look only — not a house you photograph"
                             : `${kindLabel(property.kind)}${property.unit ? ` · Apt ${property.unit}` : ""}`}
                         </p>
                       </div>
-                      {!property.isSample && (
+                      {!isDemoHouse(property) && (
                         <p className={`max-w-[46%] text-right text-xs leading-snug ${severityTextClass(severity)}`}>
                           {lastFrameFlaggedCopy(lastRatio)}
                         </p>
@@ -225,9 +231,9 @@ export default function HomePage() {
                       {scanCount} {scanCount === 1 ? "photo" : "photos"}
                       {lastScannedAt ? ` · last ${new Date(lastScannedAt).toLocaleString()}` : " · no photos yet"}
                     </p>
-                    {!property.isSample && <CityContextCard context={property.cityContext} compact />}
+                    {!isDemoHouse(property) && <CityContextCard context={property.cityContext} compact />}
                   </Link>
-                  {!property.isSample && (
+                  {!isDemoHouse(property) && (
                     <div className="px-4 pb-4">
                       <Link
                         href={`/scan?propertyId=${property.id}`}
