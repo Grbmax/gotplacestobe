@@ -30,6 +30,7 @@ export function ScanCard({ scan, onSelect }: Props) {
             {(scan.totalAffectedRatio * 100).toFixed(1)}% affected ·{" "}
             {new Date(scan.capturedAt).toLocaleDateString()}
           </p>
+          {scan.scannedByName && <p className="mt-0.5 text-[11px] text-zinc-500">by {scan.scannedByName}</p>}
         </div>
       </div>
     </button>

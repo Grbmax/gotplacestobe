@@ -2,15 +2,18 @@ import { persistImage } from "./blob";
 import { hasMongo, getDb } from "./db";
 import { runDetect } from "./detect";
 import { totalAffectedRatio } from "./mockMath";
-import type { Property, Review, Scan, SurfaceCoverage } from "./types";
+import type { Property, Review, Role, Scan, SurfaceCoverage } from "./types";
 
 type PropertyDoc = Omit<Property, "id"> & { _id: string };
 type ScanDoc = Omit<Scan, "id"> & { _id: string };
+type IdentityDoc = { _id: string; name: string; role: Role };
 
 const mem = {
   properties: [] as Property[],
   scans: [] as Scan[],
+  identities: new Map<string, IdentityDoc>(),
   seeded: false,
+  mongoSeeded: false,
 };
 
 function id(prefix: string) {
@@ -21,12 +24,15 @@ function weeksAgo(weeks: number) {
   return new Date(Date.now() - weeks * 7 * 24 * 3_600_000).toISOString();
 }
 
+export const SAMPLE_PROPERTY_ID = "prop_sample_beacon";
+
 function sampleSeed(): { property: Property; scans: Scan[] } {
   const property: Property = {
-    id: "prop_sample_beacon",
+    id: SAMPLE_PROPERTY_ID,
     label: "5614 Beacon St",
     kind: "lease",
     createdAt: weeksAgo(6),
+    isSample: true,
   };
   const baseDetsEarly = [
     {
@@ -89,22 +95,33 @@ function sampleSeed(): { property: Property; scans: Scan[] } {
 
 async function ensureSeed() {
   if (hasMongo()) {
+    if (mem.mongoSeeded) return;
     const db = await getDb();
     const count = await db.collection("properties").countDocuments();
-    if (count > 0) return;
+    if (count > 0) {
+      mem.mongoSeeded = true;
+      return;
+    }
     const { property, scans } = sampleSeed();
-    await db.collection<PropertyDoc>("properties").insertOne({
-      _id: property.id,
-      label: property.label,
-      kind: property.kind,
-      createdAt: property.createdAt,
-    });
-    await db.collection<ScanDoc>("scans").insertMany(
-      scans.map((s) => {
-        const { id, ...rest } = s;
-        return { _id: id, ...rest };
-      }),
-    );
+    try {
+      await db.collection<PropertyDoc>("properties").insertOne({
+        _id: property.id,
+        label: property.label,
+        kind: property.kind,
+        createdAt: property.createdAt,
+        isSample: property.isSample,
+      });
+      await db.collection<ScanDoc>("scans").insertMany(
+        scans.map((s) => {
+          const { id, ...rest } = s;
+          return { _id: id, ...rest };
+        }),
+      );
+    } catch (err) {
+      // 11000 = duplicate key — another concurrent request already seeded it, not a real failure.
+      if ((err as { code?: number }).code !== 11000) throw err;
+    }
+    mem.mongoSeeded = true;
     return;
   }
   if (mem.seeded) return;
@@ -115,7 +132,21 @@ async function ensureSeed() {
 }
 
 function asProperty(doc: PropertyDoc): Property {
-  return { id: doc._id, label: doc.label, kind: doc.kind, createdAt: doc.createdAt };
+  return {
+    id: doc._id,
+    label: doc.label,
+    kind: doc.kind,
+    createdAt: doc.createdAt,
+    createdBy: doc.createdBy,
+    createdByName: doc.createdByName,
+    isSample: doc.isSample,
+  };
+}
+
+/** Inline data URLs break <img> / list payloads once photos get large — serve via API. */
+function clientImageUrl(scanId: string, imageUrl: string): string {
+  if (imageUrl.startsWith("data:")) return `/api/scans/${scanId}/image`;
+  return imageUrl;
 }
 
 function asScan(doc: ScanDoc): Scan {
@@ -124,7 +155,7 @@ function asScan(doc: ScanDoc): Scan {
     propertyId: doc.propertyId,
     room: doc.room,
     surface: doc.surface,
-    imageUrl: doc.imageUrl,
+    imageUrl: clientImageUrl(doc._id, doc.imageUrl),
     capturedAt: doc.capturedAt,
     detections: doc.detections,
     totalAffectedRatio: doc.totalAffectedRatio,
@@ -132,6 +163,8 @@ function asScan(doc: ScanDoc): Scan {
     detector: doc.detector,
     review: doc.review,
     isSample: doc.isSample,
+    scannedBy: doc.scannedBy,
+    scannedByName: doc.scannedByName,
   };
 }
 
@@ -143,13 +176,20 @@ export async function listProperties(): Promise<Property[]> {
   return docs.map(asProperty);
 }
 
-export async function createProperty(input: { label: string; kind: Property["kind"] }): Promise<Property> {
+export async function createProperty(input: {
+  label: string;
+  kind: Property["kind"];
+  createdBy?: string;
+  createdByName?: string;
+}): Promise<Property> {
   await ensureSeed();
   const property: Property = {
     id: id("prop"),
     label: input.label.trim() || "Untitled property",
     kind: input.kind,
     createdAt: new Date().toISOString(),
+    createdBy: input.createdBy,
+    createdByName: input.createdByName,
   };
   if (!hasMongo()) {
     mem.properties.unshift(property);
@@ -161,6 +201,8 @@ export async function createProperty(input: { label: string; kind: Property["kin
     label: property.label,
     kind: property.kind,
     createdAt: property.createdAt,
+    createdBy: property.createdBy,
+    createdByName: property.createdByName,
   });
   return property;
 }
@@ -179,7 +221,8 @@ export async function listScans(filter: {
         if (filter.surface && s.surface !== filter.surface) return false;
         return true;
       })
-      .sort((a, b) => b.capturedAt.localeCompare(a.capturedAt));
+      .sort((a, b) => b.capturedAt.localeCompare(a.capturedAt))
+      .map((s) => ({ ...s, imageUrl: clientImageUrl(s.id, s.imageUrl) }));
   }
   const db = await getDb();
   const q: Record<string, string> = {};
@@ -192,10 +235,42 @@ export async function listScans(filter: {
 
 export async function getScan(id: string): Promise<Scan | null> {
   await ensureSeed();
-  if (!hasMongo()) return mem.scans.find((s) => s.id === id) ?? null;
+  if (!hasMongo()) {
+    const scan = mem.scans.find((s) => s.id === id) ?? null;
+    return scan ? { ...scan, imageUrl: clientImageUrl(scan.id, scan.imageUrl) } : null;
+  }
   const db = await getDb();
   const doc = await db.collection<ScanDoc>("scans").findOne({ _id: id });
   return doc ? asScan(doc) : null;
+}
+
+/** Raw image bytes/URL for <img src="/api/scans/:id/image"> — keeps list JSON small. */
+export async function getScanImage(
+  id: string,
+): Promise<{ kind: "url"; url: string } | { kind: "bytes"; contentType: string; bytes: Buffer } | null> {
+  await ensureSeed();
+  let imageUrl: string | undefined;
+  if (!hasMongo()) {
+    imageUrl = mem.scans.find((s) => s.id === id)?.imageUrl;
+  } else {
+    const db = await getDb();
+    const doc = await db.collection<ScanDoc>("scans").findOne(
+      { _id: id },
+      { projection: { imageUrl: 1 } },
+    );
+    imageUrl = doc?.imageUrl;
+  }
+  if (!imageUrl) return null;
+  if (imageUrl.startsWith("http://") || imageUrl.startsWith("https://")) {
+    return { kind: "url", url: imageUrl };
+  }
+  const match = /^data:(image\/[\w+.-]+);base64,(.+)$/i.exec(imageUrl);
+  if (!match) return null;
+  return {
+    kind: "bytes",
+    contentType: match[1]!,
+    bytes: Buffer.from(match[2]!, "base64"),
+  };
 }
 
 export async function createScan(input: {
@@ -203,8 +278,18 @@ export async function createScan(input: {
   room: string;
   surface: string;
   image: string;
-}): Promise<Scan> {
+  scannedBy?: string;
+  scannedByName?: string;
+}): Promise<{ scan: Scan } | { error: string }> {
   await ensureSeed();
+  const property = await getProperty(input.propertyId);
+  if (!property) return { error: "Unknown property" };
+  if (property.id === SAMPLE_PROPERTY_ID) {
+    // The seeded demo property is fixed history — never let a real scan
+    // blend into it, or the trend/compare math would mix fake and real data.
+    return { error: "Create your own property before scanning — the sample one is demo data only" };
+  }
+
   const detected = await runDetect(input.image);
   const imageUrl = await persistImage(input.image, id("img"));
   const scan: Scan = {
@@ -218,16 +303,25 @@ export async function createScan(input: {
     totalAffectedRatio: totalAffectedRatio(detected.detections),
     finding: detected.finding,
     detector: detected.detector,
+    scannedBy: input.scannedBy,
+    scannedByName: input.scannedByName,
   };
 
   if (!hasMongo()) {
     mem.scans.unshift(scan);
-    return scan;
+    return { scan: { ...scan, imageUrl: clientImageUrl(scan.id, scan.imageUrl) } };
   }
   const db = await getDb();
   const { id: scanId, ...rest } = scan;
   await db.collection<ScanDoc>("scans").insertOne({ _id: scanId, ...rest });
-  return scan;
+  return { scan: { ...scan, imageUrl: clientImageUrl(scan.id, scan.imageUrl) } };
+}
+
+async function getProperty(propertyId: string): Promise<Property | null> {
+  if (!hasMongo()) return mem.properties.find((p) => p.id === propertyId) ?? null;
+  const db = await getDb();
+  const doc = await db.collection<PropertyDoc>("properties").findOne({ _id: propertyId });
+  return doc ? asProperty(doc) : null;
 }
 
 export async function reviewScan(
@@ -238,6 +332,8 @@ export async function reviewScan(
   const payload: Review = {
     verdict: review.verdict,
     reviewerRole: review.reviewerRole,
+    reviewerId: review.reviewerId,
+    reviewerName: review.reviewerName,
     note: review.note,
     at: new Date().toISOString(),
   };
@@ -287,4 +383,23 @@ export async function propertySummaries() {
     out.push({ property: p, lastScannedAt: last?.capturedAt ?? null, worstRatio: worst, scanCount: scans.length });
   }
   return out;
+}
+
+/** Real-Auth0 path only: role is set once after first login, keyed by the Auth0 `sub`. */
+export async function getIdentityRole(authId: string): Promise<Role | null> {
+  if (!hasMongo()) return mem.identities.get(authId)?.role ?? null;
+  const db = await getDb();
+  const doc = await db.collection<IdentityDoc>("identities").findOne({ _id: authId });
+  return doc?.role ?? null;
+}
+
+export async function setIdentityRole(authId: string, name: string, role: Role): Promise<void> {
+  if (!hasMongo()) {
+    mem.identities.set(authId, { _id: authId, name, role });
+    return;
+  }
+  const db = await getDb();
+  await db
+    .collection<IdentityDoc>("identities")
+    .updateOne({ _id: authId }, { $set: { name, role } }, { upsert: true });
 }

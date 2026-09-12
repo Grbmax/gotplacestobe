@@ -3,13 +3,16 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { DetectorBadge } from "@/components/DetectorBadge";
+import { IdentityChip } from "@/components/IdentityChip";
 import { SurfacePrompt } from "@/components/SurfacePrompt";
 import { Viewfinder } from "@/components/Viewfinder";
+import { useIdentity } from "@/lib/IdentityContext";
 import { KNOWN_SURFACES, nextBestSurface } from "@/lib/nextbest";
 import type { Detection, Property, Scan, SurfaceCoverage } from "@/lib/types";
 
 export default function ScanPage() {
-  const [properties, setProperties] = useState<Property[]>([]);
+  const { identity } = useIdentity();
+  const [properties, setProperties] = useState<Property[] | null>(null);
   const [propertyId, setPropertyId] = useState("");
   const [room, setRoom] = useState("bathroom");
   const [surface, setSurface] = useState("ceiling_vent");
@@ -20,12 +23,16 @@ export default function ScanPage() {
   const [resultScan, setResultScan] = useState<Scan | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const scannableProperties = useMemo(() => (properties ?? []).filter((p) => !p.isSample), [properties]);
+
   useEffect(() => {
     void (async () => {
       const res = await fetch("/api/properties", { cache: "no-store" });
       const data = (await res.json()) as { properties: Property[] };
       setProperties(data.properties);
-      const first = data.properties[0];
+      // Never default onto the sample property — a real scan must never land
+      // on fixed demo data, or the progression graph blends fake and real.
+      const first = data.properties.find((p) => !p.isSample);
       if (first) setPropertyId(first.id);
     })().catch(() => setError("Could not load properties"));
   }, []);
@@ -73,7 +80,14 @@ export default function ScanPage() {
       const res = await fetch("/api/scans", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ propertyId, room, surface, image: dataUrl }),
+        body: JSON.stringify({
+          propertyId,
+          room,
+          surface,
+          image: dataUrl,
+          scannedBy: identity.id,
+          scannedByName: identity.name,
+        }),
       });
       const data = (await res.json()) as { scan?: Scan; error?: string };
       if (!res.ok || !data.scan) throw new Error(data.error ?? "scan failed");
@@ -93,6 +107,31 @@ export default function ScanPage() {
     setResultScan(null);
   }
 
+  // Loading, or nothing scannable yet — don't hand the camera to a dead-end flow.
+  if (properties === null) {
+    return <main className="grid h-dvh place-items-center bg-black text-sm text-zinc-500">Loading…</main>;
+  }
+  if (scannableProperties.length === 0) {
+    return (
+      <main className="grid h-dvh place-items-center bg-black px-6 text-center text-white">
+        <div>
+          <p className="text-[11px] uppercase tracking-[0.28em] text-emerald-400">SCAN</p>
+          <h1 className="mt-2 text-2xl font-semibold">Add a property first</h1>
+          <p className="mx-auto mt-2 max-w-xs text-sm text-zinc-400">
+            The one showing on the home screen is sample data — create your own before scanning, so your real
+            findings don&apos;t get mixed into a fake trend.
+          </p>
+          <Link
+            href="/"
+            className="mt-6 inline-block rounded-full bg-emerald-400 px-6 py-3 text-sm font-semibold text-black"
+          >
+            Go add one
+          </Link>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="relative h-dvh overflow-hidden bg-black text-white">
       <div className="absolute inset-0">
@@ -110,14 +149,17 @@ export default function ScanPage() {
           <Link href="/" className="rounded-full bg-black/55 px-3 py-1.5 text-xs uppercase tracking-wider">
             SCAN
           </Link>
-          {propertyId && (
-            <Link
-              href={`/report/${propertyId}`}
-              className="rounded-full bg-black/55 px-3 py-1.5 text-xs text-zinc-200"
-            >
-              Report
-            </Link>
-          )}
+          <div className="flex items-center gap-2">
+            <IdentityChip />
+            {propertyId && (
+              <Link
+                href={`/report/${propertyId}`}
+                className="rounded-full bg-black/55 px-3 py-1.5 text-xs text-zinc-200"
+              >
+                Report
+              </Link>
+            )}
+          </div>
         </div>
         <div className="pointer-events-auto">
           <SurfacePrompt room={room} surface={surface} reason={reason} />
@@ -153,7 +195,7 @@ export default function ScanPage() {
                 onChange={(e) => setPropertyId(e.target.value)}
                 className="rounded-xl border border-zinc-700 bg-zinc-950/90 px-2 py-2 text-xs"
               >
-                {properties.map((p) => (
+                {scannableProperties.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.label}
                   </option>

@@ -17,6 +17,8 @@ export async function POST(request: NextRequest) {
     room?: string;
     surface?: string;
     image?: string;
+    scannedBy?: string;
+    scannedByName?: string;
   };
   if (!body.propertyId || !body.room || !body.surface || !body.image) {
     return Response.json({ error: "Missing fields" }, { status: 400 });
@@ -24,11 +26,14 @@ export async function POST(request: NextRequest) {
   if (!body.image.startsWith("data:image/")) {
     return Response.json({ error: "image must be a data URL" }, { status: 400 });
   }
-  const scan = await createScan({
+  const result = await createScan({
     propertyId: body.propertyId,
     room: body.room,
     surface: body.surface,
     image: body.image,
+    scannedBy: body.scannedBy,
+    scannedByName: body.scannedByName,
   });
-  return Response.json({ scan });
+  if ("error" in result) return Response.json(result, { status: 400 });
+  return Response.json(result);
 }
