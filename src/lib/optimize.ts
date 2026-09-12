@@ -89,12 +89,16 @@ export function naiveOrder(scans: Scan[]): Scan[] {
   });
 }
 
+function surfaceKey(s: Scan) {
+  return `${s.room}::${s.surface}`;
+}
+
 /** Cumulative count of distinct (room, surface) locations with at least one detection, photo by photo. */
 export function cumulativeDefects(order: Scan[]): number[] {
   const found = new Set<string>();
   const out: number[] = [];
   for (const s of order) {
-    if (s.detections.length > 0) found.add(`${s.room}::${s.surface}`);
+    if (s.detections.length > 0) found.add(surfaceKey(s));
     out.push(found.size);
   }
   return out;
@@ -102,11 +106,53 @@ export function cumulativeDefects(order: Scan[]): number[] {
 
 export function totalDistinctDefects(scans: Scan[]): number {
   const found = new Set<string>();
-  for (const s of scans) if (s.detections.length > 0) found.add(`${s.room}::${s.surface}`);
+  for (const s of scans) if (s.detections.length > 0) found.add(surfaceKey(s));
   return found.size;
 }
 
-/** Photos needed to reach `target` distinct defects found, or the full length if never reached. */
+/**
+ * Photographing a surface reveals that surface's condition — represented by the
+ * worst state ever measured there. Two photos of the same wall tell you about one
+ * wall, so the comparison is over surfaces visited, not shutter presses: otherwise
+ * an order is rewarded purely for which of several historical frames it happened
+ * to replay first.
+ */
+export function surfaceSeverity(scans: Scan[]): Map<string, number> {
+  const worst = new Map<string, number>();
+  for (const s of scans) {
+    const key = surfaceKey(s);
+    worst.set(key, Math.max(worst.get(key) ?? 0, s.totalAffectedRatio));
+  }
+  return worst;
+}
+
+/**
+ * Total damage on the property. Summing severity rather than counting surfaces is
+ * what keeps a 0.8% paint speck from scoring the same as half a ceiling of mould —
+ * the difference the planner exists to find first.
+ */
+export function totalDamage(scans: Scan[]): number {
+  let sum = 0;
+  for (const v of surfaceSeverity(scans).values()) sum += v;
+  return sum;
+}
+
+/** Share of the property's damage surfaced, as a percentage, one point per new surface photographed. */
+export function discoveryCurve(order: Scan[], severity: Map<string, number>, total: number): number[] {
+  const seen = new Set<string>();
+  const out: number[] = [];
+  let sum = 0;
+  for (const s of order) {
+    const key = surfaceKey(s);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    sum += severity.get(key) ?? 0;
+    out.push(total > 0 ? (sum / total) * 100 : 0);
+  }
+  return out;
+}
+
+/** Photos needed to reach `target`, or the full length if never reached. */
 export function photosToReach(cumulative: number[], target: number): number {
   const idx = cumulative.findIndex((n) => n >= target);
   return idx === -1 ? cumulative.length : idx + 1;
@@ -114,20 +160,24 @@ export function photosToReach(cumulative: number[], target: number): number {
 
 export function guidedVsNaiveSummary(scans: Scan[]) {
   const total = totalDistinctDefects(scans);
-  if (scans.length < 3 || total === 0) return null;
-  const target = Math.max(1, Math.ceil(total * 0.8));
-  const guidedAt80 = photosToReach(cumulativeDefects(guidedOrder(scans)), target);
-  const naiveAt80 = photosToReach(cumulativeDefects(naiveOrder(scans)), target);
-  const found = Math.min(total, target);
-  return {
-    total,
-    found,
-    guidedAt80,
-    naiveAt80,
-    sentence: `Guided capture found ${found} of ${total} defects in ${guidedAt80} photo${
-      guidedAt80 === 1 ? "" : "s"
-    }. Photographing lowest-risk surfaces first took ${naiveAt80} photo${
-      naiveAt80 === 1 ? "" : "s"
-    } to find the same.`,
-  };
+  const severity = surfaceSeverity(scans);
+  const damage = totalDamage(scans);
+  if (scans.length < 3 || total === 0 || damage <= 0) return null;
+
+  const guidedCurve = discoveryCurve(guidedOrder(scans), severity, damage);
+  const naiveCurve = discoveryCurve(naiveOrder(scans), severity, damage);
+  const guidedAt80 = photosToReach(guidedCurve, 80);
+  const naiveAt80 = photosToReach(naiveCurve, 80);
+  const photos = (n: number) => `${n} photo${n === 1 ? "" : "s"}`;
+  const lead = `Guided capture surfaced 80% of this property's visible damage in ${photos(guidedAt80)}.`;
+  const sentence =
+    guidedAt80 < naiveAt80
+      ? `${lead} Photographing lowest-risk surfaces first took ${photos(naiveAt80)} to reach the same.`
+      : guidedAt80 === naiveAt80
+        ? `${lead} Photographing lowest-risk surfaces first took the same number here — too few surfaces to separate the two orders.`
+        : `${lead} Lowest-risk-first got there in ${photos(
+            naiveAt80,
+          )} — on this property the worst damage isn't where the risk priors expect it.`;
+
+  return { total, guidedAt80, naiveAt80, guidedWins: guidedAt80 < naiveAt80, sentence };
 }

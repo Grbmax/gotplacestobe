@@ -24,7 +24,7 @@ export function OptimizeChart({ guided, naive, showNaive }: Props) {
   const padR = 28;
   const padT = 16;
   const padB = 24;
-  const max = Math.max(1, ...guided, ...naive);
+  const max = 100;
   const photos = Math.max(guided.length, naive.length);
   const guidedEnd = guided[guided.length - 1] ?? 0;
   const naiveEnd = naive[naive.length - 1] ?? 0;
@@ -36,18 +36,34 @@ export function OptimizeChart({ guided, naive, showNaive }: Props) {
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4">
-      <svg viewBox={`0 0 ${w} ${h}`} className="h-48 w-full" role="img" aria-label="Defects found versus photos taken">
+      <svg
+        viewBox={`0 0 ${w} ${h}`}
+        className="h-48 w-full"
+        role="img"
+        aria-label="Share of the property's damage found versus photos taken"
+      >
         {/* Gridline at total */}
         <line x1={padL} y1={yTop} x2={xEnd} y2={yTop} stroke="#e2e8f0" strokeWidth="1" strokeDasharray="3 3" />
         <line x1={padL} y1={yBot} x2={xEnd} y2={yBot} stroke="#e2e8f0" strokeWidth="1" />
         <line x1={padL} y1={yTop} x2={padL} y2={yBot} stroke="#e2e8f0" strokeWidth="1" />
 
+        {/* 80% target — the line both curves are racing to cross */}
+        <line
+          x1={padL}
+          y1={yBot - 0.8 * (yBot - yTop)}
+          x2={xEnd}
+          y2={yBot - 0.8 * (yBot - yTop)}
+          stroke="#cbd5e1"
+          strokeWidth="1"
+          strokeDasharray="2 3"
+        />
+
         {/* Y ticks */}
         <text x={padL - 6} y={yBot + 3} textAnchor="end" fill="#64748b" fontSize="9">
           0
         </text>
-        <text x={padL - 6} y={yTop + 3} textAnchor="end" fill="#64748b" fontSize="9">
-          {max}
+        <text x={padL - 6} y={yBot - 0.8 * (yBot - yTop) + 3} textAnchor="end" fill="#64748b" fontSize="9">
+          80%
         </text>
         <text
           x={12}
@@ -57,7 +73,7 @@ export function OptimizeChart({ guided, naive, showNaive }: Props) {
           fontSize="10"
           transform={`rotate(-90 12 ${(yTop + yBot) / 2})`}
         >
-          Defects found
+          Damage found
         </text>
 
         {showNaive && (
@@ -67,11 +83,11 @@ export function OptimizeChart({ guided, naive, showNaive }: Props) {
 
         {/* Endpoint labels */}
         <text x={xEnd + 4} y={guidedY + 3} fill="#64748b" fontSize="9">
-          {guidedEnd}
+          {Math.round(guidedEnd)}%
         </text>
         {showNaive && Math.abs(naiveY - guidedY) > 10 && (
           <text x={xEnd + 4} y={naiveY + 3} fill="#64748b" fontSize="9">
-            {naiveEnd}
+            {Math.round(naiveEnd)}%
           </text>
         )}
       </svg>
