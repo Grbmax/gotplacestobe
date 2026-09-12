@@ -14,7 +14,14 @@ export type TrainingFrameDoc = {
   byteLength: number;
   detections: Detection[];
   finding: string;
-  detector: "gemini" | "mock" | "gemini+roboflow" | "roboflow";
+  detector:
+    | "gemini"
+    | "grok"
+    | "mock"
+    | "gemini+roboflow"
+    | "grok+roboflow"
+    | "ensemble"
+    | "roboflow";
   capturedAt: string;
   source: "capture" | "upload";
   forTraining: true;
@@ -39,7 +46,14 @@ export async function saveTrainingFrame(input: {
   imageDataUrl: string;
   detections: Detection[];
   finding: string;
-  detector: "gemini" | "mock" | "gemini+roboflow" | "roboflow";
+  detector:
+    | "gemini"
+    | "grok"
+    | "mock"
+    | "gemini+roboflow"
+    | "grok+roboflow"
+    | "ensemble"
+    | "roboflow";
   capturedAt: string;
   source?: "capture" | "upload";
   scannedBy?: string;

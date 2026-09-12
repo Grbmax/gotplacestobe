@@ -72,7 +72,21 @@ export default function ReportPage() {
       if (!g) map.set(key, { key, room: s.room, surface: s.surface, scans: [s] });
       else g.scans.push(s);
     }
-    return [...map.values()].sort((a, b) => a.key.localeCompare(b.key));
+    // Worsening surfaces first (that's the actual news), then by how severe the
+    // latest reading is — alphabetical-by-key was burying the one worsening,
+    // high-confidence finding three-quarters down the page under a wall of
+    // "Improving" groups whose "before" was a real detection and "after" was
+    // an unrelated mock reading.
+    const directionRank: Record<string, number> = { worsening: 0, insufficient_data: 1, stable: 2, improving: 3 };
+    return [...map.values()].sort((a, b) => {
+      const ta = surfaceTrend(a.scans);
+      const tb = surfaceTrend(b.scans);
+      const rankDiff = directionRank[ta.direction] - directionRank[tb.direction];
+      if (rankDiff !== 0) return rankDiff;
+      const severityA = ta.latest?.totalAffectedRatio ?? 0;
+      const severityB = tb.latest?.totalAffectedRatio ?? 0;
+      return severityB - severityA;
+    });
   }, [scans]);
 
   async function review(scanId: string, verdict: Review["verdict"]) {

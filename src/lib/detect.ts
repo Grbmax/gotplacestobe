@@ -1,17 +1,15 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { fuseDetections } from "./fuse";
+import { detectWithGrok, hasGrok } from "./grok";
 import type { Detection } from "./types";
 import { mockDetections, mockFinding, sanitizeDetections } from "./mockMath";
 import { detectWithRoboflow, hasRoboflow } from "./roboflow";
 
-export interface Detector {
-  name: "gemini" | "mock";
-  detect(imageDataUrl: string): Promise<{ detections: Detection[]; finding: string }>;
-}
+type PassResult = { detections: Detection[]; finding: string };
 
-class MockDetector implements Detector {
+class MockDetector {
   name = "mock" as const;
-  async detect(imageDataUrl: string) {
+  async detect(imageDataUrl: string): Promise<PassResult> {
     const seed = String(imageDataUrl.length);
     const detections = mockDetections(`shot:${seed}`, -0.5);
     return { detections, finding: mockFinding(detections) };
@@ -47,10 +45,10 @@ const RESPONSE_SCHEMA = {
   required: ["detections", "finding"],
 };
 
-class GeminiDetector implements Detector {
+class GeminiDetector {
   name = "gemini" as const;
 
-  async detect(imageDataUrl: string) {
+  async detect(imageDataUrl: string): Promise<PassResult> {
     const key = process.env.GEMINI_API_KEY;
     if (!key) throw new Error("Missing GEMINI_API_KEY");
 
@@ -110,34 +108,13 @@ class GeminiDetector implements Detector {
   }
 }
 
-function selectDetector(): Detector {
-  const override = process.env.DETECTOR?.toLowerCase();
-  if (override === "mock") return new MockDetector();
-  if (override === "gemini" || process.env.GEMINI_API_KEY) return new GeminiDetector();
-  return new MockDetector();
+function hasGemini() {
+  return Boolean(process.env.GEMINI_API_KEY?.trim());
 }
 
-function appendVerifyNote(finding: string, agreed: number, rfOnly: number): string {
-  if (agreed > 0) {
-    return `${finding} (Roboflow verified ${agreed} region${agreed === 1 ? "" : "s"}.)`;
-  }
-  if (rfOnly > 0) {
-    return `${finding} (Roboflow also flagged additional high-confidence regions.)`;
-  }
-  return finding;
+function forcedMock() {
+  return process.env.DETECTOR?.toLowerCase() === "mock";
 }
-
-const mock = new MockDetector();
-
-export type DetectorKind = "gemini" | "mock" | "gemini+roboflow" | "roboflow";
-
-export type DetectResult = {
-  detections: Detection[];
-  finding: string;
-  detector: DetectorKind;
-  /** True only when this is the last-resort mock fallback after Gemini AND Roboflow both failed/are absent — never for a real reading from either. */
-  degraded?: boolean;
-};
 
 function findingFromDetections(detections: Detection[], source: "roboflow" | "mock"): string {
   if (!detections.length) {
@@ -157,66 +134,161 @@ function isQuotaError(err: unknown): boolean {
   return msg.includes("RESOURCE_EXHAUSTED") || msg.includes("429") || msg.toLowerCase().includes("quota");
 }
 
-/** Gemini primary; Roboflow verifies. If Gemini is down (e.g. quota), Roboflow is used alone — never invent Mock boxes when RF is available. */
+function pickFinding(a?: string, b?: string) {
+  const left = a?.trim() ?? "";
+  const right = b?.trim() ?? "";
+  if (left && right) return left.length >= right.length ? left : right;
+  return left || right || "No visible mold, seepage, cracking, or peeling detected.";
+}
+
+function mergeLlmPasses(
+  gemini: PassResult | null,
+  grok: PassResult | null,
+): { result: PassResult; sources: ("gemini" | "grok")[] } | null {
+  if (!gemini && !grok) return null;
+  if (gemini && !grok) return { result: gemini, sources: ["gemini"] };
+  if (!gemini && grok) return { result: grok, sources: ["grok"] };
+
+  const fused = fuseDetections(gemini!.detections, grok!.detections);
+  return {
+    result: {
+      detections: fused.detections,
+      finding: pickFinding(gemini!.finding, grok!.finding),
+    },
+    sources: ["gemini", "grok"],
+  };
+}
+
+function labelFor(sources: ("gemini" | "grok")[], usedRf: boolean): DetectorKind {
+  const hasG = sources.includes("gemini");
+  const hasX = sources.includes("grok");
+  if (hasG && hasX && usedRf) return "ensemble";
+  if (hasG && hasX) return "ensemble";
+  if (hasG && usedRf) return "gemini+roboflow";
+  if (hasX && usedRf) return "grok+roboflow";
+  if (usedRf && !hasG && !hasX) return "roboflow";
+  if (hasG) return "gemini";
+  if (hasX) return "grok";
+  return "mock";
+}
+
+const mock = new MockDetector();
+const gemini = new GeminiDetector();
+
+export type DetectorKind =
+  | "gemini"
+  | "grok"
+  | "roboflow"
+  | "gemini+roboflow"
+  | "grok+roboflow"
+  | "ensemble"
+  | "mock";
+
+export type DetectResult = {
+  detections: Detection[];
+  finding: string;
+  detector: DetectorKind;
+  /** True only when every real pass failed — never when RF/Grok/Gemini saved the reading. */
+  degraded?: boolean;
+  passes?: { gemini?: boolean; grok?: boolean; roboflow?: boolean };
+};
+
+/**
+ * Multi-pass detection:
+ *  1) Gemini + Grok in parallel (whichever keys exist)
+ *  2) Roboflow as final judgment / verifier
+ * Failures are swallowed when a later pass succeeds — the tenant never sees an outage badge
+ * unless every real detector is down.
+ */
 export async function runDetect(imageDataUrl: string): Promise<DetectResult> {
-  const preferred = selectDetector();
-  let primary: { detections: Detection[]; finding: string } | null = null;
-  let base: "gemini" | "mock" | null = null;
-  let geminiErr: unknown = null;
-
-  if (preferred.name === "mock") {
-    primary = await preferred.detect(imageDataUrl);
-    base = "mock";
-  } else {
-    try {
-      primary = await preferred.detect(imageDataUrl);
-      base = "gemini";
-    } catch (err) {
-      console.error("[detect] Gemini failed; will try Roboflow then mock", err);
-      geminiErr = err;
-    }
+  if (forcedMock()) {
+    const result = await mock.detect(imageDataUrl);
+    return { ...result, detector: "mock" };
   }
 
-  // Forced mock mode — skip RF. Deliberate testing mode, not a degraded state.
-  if (base === "mock" && primary) {
-    return { ...primary, detector: "mock" };
-  }
+  const geminiP = hasGemini()
+    ? gemini.detect(imageDataUrl).then(
+        (r) => ({ ok: true as const, r }),
+        (err) => {
+          console.error("[detect] Gemini pass failed", err);
+          return { ok: false as const, err };
+        },
+      )
+    : Promise.resolve({ ok: false as const, err: new Error("no gemini key") });
 
+  const grokP = hasGrok()
+    ? detectWithGrok(imageDataUrl).then(
+        (r) => ({ ok: true as const, r }),
+        (err) => {
+          console.error("[detect] Grok pass failed", err);
+          return { ok: false as const, err };
+        },
+      )
+    : Promise.resolve({ ok: false as const, err: new Error("no grok key") });
+
+  const [geminiOut, grokOut] = await Promise.all([geminiP, grokP]);
+  const geminiRes = geminiOut.ok ? geminiOut.r : null;
+  const grokRes = grokOut.ok ? grokOut.r : null;
+  const llm = mergeLlmPasses(geminiRes, grokRes);
+  const sources = llm?.sources ?? [];
+
+  let rf: Detection[] | null = null;
   if (hasRoboflow()) {
     try {
-      const rf = await detectWithRoboflow(imageDataUrl);
-
-      // Gemini down → Roboflow alone (real CV, not seeded mock — not degraded).
-      if (!primary || base !== "gemini") {
-        return {
-          detections: rf,
-          finding: findingFromDetections(rf, "roboflow"),
-          detector: "roboflow",
-        };
-      }
-
-      if (!rf.length) return { ...primary, detector: "gemini" };
-
-      const fused = fuseDetections(primary.detections, rf);
-      return {
-        detections: fused.detections,
-        finding: appendVerifyNote(primary.finding, fused.agreed, fused.roboflowOnly),
-        detector: fused.agreed > 0 || fused.roboflowOnly > 0 ? "gemini+roboflow" : "gemini",
-      };
+      rf = await detectWithRoboflow(imageDataUrl);
     } catch (err) {
-      console.error("[detect] Roboflow failed", err);
-      if (primary && base === "gemini") return { ...primary, detector: "gemini" };
+      console.error("[detect] Roboflow judgment failed", err);
     }
   }
 
-  if (primary && base === "gemini") return { ...primary, detector: "gemini" };
+  // Roboflow is the last line of judgment when LLMs are down or empty of signal.
+  if (rf && !llm) {
+    return {
+      detections: rf,
+      finding: findingFromDetections(rf, "roboflow"),
+      detector: "roboflow",
+      passes: { gemini: Boolean(geminiRes), grok: Boolean(grokRes), roboflow: true },
+    };
+  }
 
-  // Both Gemini and Roboflow are unavailable — this is a real outage, not a clean
-  // reading. Never let it look like one.
-  const finding = geminiErr
-    ? isQuotaError(geminiErr)
-      ? "Gemini is temporarily unavailable (daily quota reached) — this is not a real reading. Try again once quota resets, or use a different API key."
-      : "Gemini is temporarily unavailable — this is not a real reading. Please retry."
+  if (llm && rf) {
+    const fused = fuseDetections(llm.result.detections, rf);
+    const usedRf = fused.agreed > 0 || fused.roboflowOnly > 0 || !llm.result.detections.length;
+    const finding =
+      fused.agreed > 0
+        ? `${llm.result.finding} (Cross-checked with on-device CV.)`
+        : fused.roboflowOnly > 0
+          ? `${llm.result.finding} (CV also flagged additional high-confidence regions.)`
+          : llm.result.finding;
+    return {
+      detections: fused.detections,
+      finding,
+      detector: labelFor(sources, usedRf || Boolean(rf.length)),
+      passes: { gemini: Boolean(geminiRes), grok: Boolean(grokRes), roboflow: true },
+    };
+  }
+
+  if (llm) {
+    return {
+      ...llm.result,
+      detector: labelFor(sources, false),
+      passes: { gemini: Boolean(geminiRes), grok: Boolean(grokRes), roboflow: false },
+    };
+  }
+
+  // Every real pass failed — this is the only tenant-visible outage path.
+  const err = geminiOut.ok ? null : geminiOut.err;
+  const finding = err
+    ? isQuotaError(err)
+      ? "Detection services are temporarily unavailable (quota). This is not a real reading — retry shortly."
+      : "Detection services are temporarily unavailable. This is not a real reading — please retry."
     : findingFromDetections([], "mock");
-  return { detections: [], finding, detector: "mock", degraded: Boolean(geminiErr) };
+
+  return {
+    detections: [],
+    finding,
+    detector: "mock",
+    degraded: true,
+    passes: { gemini: false, grok: false, roboflow: false },
+  };
 }
