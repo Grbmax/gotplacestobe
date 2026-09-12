@@ -3,6 +3,8 @@
 
 Written 2026-09-12, submission day, ~6h+ remaining before 16:00. Supersedes any verbal "let's also add X" said after this point unless it's logged in §7.
 
+**`QUEST-ROADMAP.md` is retired as of the merge logged in §7 — it briefly existed as a second, independently-written plan doc. Everything worth keeping from it lives in §4B and §5 now. If you have it open in a tab, close it and use this file instead.**
+
 ---
 
 ## 0. How to use this file (for humans and for Cursor / Claude Code)
@@ -25,7 +27,7 @@ Read this before touching anything. Two of these are bugs, not style opinions.
 
 | # | Finding | Severity | Verdict |
 |---|---|---|---|
-| 1 | **`/api/quests/:id/confirm` does not exist.** `store.ts` has `createUser`, `listQuests`, `createQuest`, `claimQuest`, `bailQuest`, `markDone`, `getMe` — no `confirmQuest`. A quest can reach `PENDING` and then never move to `CONFIRMED`. Karma escrow is never released to the helper. **This is the core loop, and it's incomplete.** | **P0** | Fix before anything else in §4. |
+| 1 | **`/api/quests/:id/confirm` does not exist.** `store.ts` has `createUser`, `listQuests`, `createQuest`, `claimQuest`, `bailQuest`, `markDone`, `getMe` — no `confirmQuest`. A quest can reach `PENDING` and then never move to `CONFIRMED`. Karma escrow is never released to the helper. **This is the core loop, and it's incomplete.** Independently flagged by a teammate in the now-retired `QUEST-ROADMAP.md` build list — two people finding the same gap without coordinating is a strong signal it's real. | **P0** | Fix before anything else in §4. |
 | 2 | **The store is a module-level in-memory array/Map** (`const quests: Quest[] = ...`, `const users = new Map()`). On Vercel this lives per serverless instance — a second warm lambda, a cold start, or a redeploy silently resets or forks state. It also makes "never wipe the seeded database" (your own non-negotiable) unenforceable, because there is no database. | **P0** | Fixed by the MongoDB swap in §5. |
 | 3 | **The campus map is a real Leaflet + OpenStreetMap tile layer with real CMU lat/lng**, not the flat named-zone list QUEST-TECH.md §0.2 called for. This already shipped (`d3ffb2f`, `274ec86`) and looks good in the screenshots. | Informational | **Keep it — do not re-litigate.** It demos better than a schematic and it isn't broken. But this is exactly the kind of unlogged scope change this file exists to catch next time. Zone-to-zone distance still comes from the hand-written matrix in `lib/data.ts`, not from GPS — that part of the original decision held. Don't let it start driving matching. |
 | 4 | No `.env`, no DB driver, no Gemini/ElevenLabs/Auth0/Vultr SDK in `package.json` yet. | Informational | Every sponsor section below is starting from zero — none of this is half-done, so there's no salvage work, only build work. |
@@ -50,6 +52,21 @@ Before writing code for anything not already in §1, answer these four questions
 
 ---
 
+## 4B. Approved core additions (merged from QUEST-ROADMAP.md)
+
+`QUEST-ROADMAP.md` was retired into this file — see §7. These three were independently proposed there by a teammate and are approved, run through the §3 gate below rather than copy-pasted in as-is.
+
+1. **Neighborhood pan.** Widen the map's `maxBounds` to roughly 40.428–40.462 N, 79.965–79.918 W (CMU core out through Oakland/Shadyside/Squirrel Hill) and add a chip row (Campus, N Oakland, S Oakland, Shadyside, Squirrel Hill) that `flyTo`s each area. Matching still runs off the hand-written minutes matrix in `lib/data.ts`, extended with entries for the new areas — **never GPS meters**, that decision still holds. Keep `maxBoundsViscosity: 1` so the map can't slide off-screen.
+   - Bundle: D (map component) + B (extend zone/minutes data). Time-box: 30 min. Fallback: ship with campus-only bounds — the chip row is additive UI, nothing else breaks if it's cut. Visible in 3 seconds: yes ("can I look around campus?" — yes, and it doesn't jump 400m indoors).
+2. **Mock board.** Seed 8–12 quests across the new neighborhoods with mixed urgency/karma so the feed is never empty when a judge walks up.
+   - Bundle: B (`MOCK_QUESTS` / seed data). Time-box: 15 min. No fallback needed — pure data.
+3. **Tier labels (New / Neighbor / Regular).** Derive from `completed`/`bailed` already on `Session` — no new fields, no new system. Badge on Wallet and on quest cards. **Skip "Anchor" entirely** — say "campus orgs later" if a judge asks, don't build it.
+   - Bundle: D only (pure display logic off existing fields). Time-box: 20 min. Fallback: just don't render the badge if the derivation throws — never block the screen on it.
+
+**Cut order if time runs out**, carried over from the original proposal: tier badges first, then extra neighborhoods (keep campus + one Oakland chip), then — everything else before touching confirm. Confirm is P0 per §4 and is never cut, full stop; the map and swipe interaction are never cut either.
+
+---
+
 ## 5. Sponsor steering — one verdict per sponsor, no ambiguity
 
 Source: [MLH HackCMU prize page](https://www.mlh.com/events/hackcmu/prizes), cross-checked against what's actually installed.
@@ -70,6 +87,7 @@ Source: [MLH HackCMU prize page](https://www.mlh.com/events/hackcmu/prizes), cro
 - This isn't just a sponsor prize, it fixes finding #2 in §2. Swap **only the internals of `lib/store.ts`**, per the seam QUEST-TECH.md §7 already designed for this ("store.ts function signatures frozen, internals are free"). `lib/db.ts` gets the Mongo client. Nobody else's files change.
 - Order matters: do the `confirmQuest` fix (§4.1) against the in-memory store first, then swap storage under it — don't do both at once, you won't be able to tell which change broke what.
 - Time-box: 60 min. Fallback: keep the in-memory version in git history — if Mongo setup stalls past the time-box, revert `store.ts` and ship in-memory for the demo table, migrate later.
+- **Team disagreement, logged, not silent:** the now-retired `QUEST-ROADMAP.md` argued for skipping Mongo tonight entirely — its position was that in-memory is fine for a table demo as long as one pinned deployment serves both phones (no spam-redeploys). That's a reasonable position. The call was made anyway to keep Mongo in tonight's plan (see §7). Practically this means the roadmap's position *is* the fallback if the time-box above is blown — reverting to in-memory costs nothing extra since it was already going to work for the demo either way.
 
 ### Auth0 — **OPTIONAL, gated**
 - Exactly as QUEST-TECH.md already decided: "sign in to keep your karma," added *after* the core loop (§4 fix + Mongo swap) is verified working end-to-end on two real phones. Never in front of Join — a login wall in front of the ten-second join is self-sabotage, your words, still true.
@@ -93,11 +111,13 @@ Not clock times (I don't know what time it is right now) — just sequence, each
 1. `confirmQuest` + `/confirm` route (§4.1) — the loop isn't real without it.
 2. MongoDB swap (§4.2 / §5).
 3. Two-phone end-to-end test: post → claim → done → confirm → karma actually moves. Don't proceed past this until it's green.
-4. Gemini composer (§5).
-5. Record the ElevenLabs-narrated demo video **while the app definitely works** — don't wait until it's shaky.
-6. Auth0, only if still ahead of schedule.
-7. Vultr, only if someone is still idle after that.
-8. Submission window — copy, track choice, buffer.
+4. Mock board seed + neighborhood pan (§4B.1–2) — can run in parallel with step 4 below if you have two people free.
+5. Gemini composer (§5).
+6. Tier labels (§4B.3) — lowest-priority approved item, first thing cut if behind.
+7. Record the ElevenLabs-narrated demo video **while the app definitely works** — don't wait until it's shaky.
+8. Auth0, only if still ahead of schedule.
+9. Vultr, only if someone is still idle after that.
+10. Submission window — copy, track choice, buffer.
 
 ---
 
@@ -108,6 +128,9 @@ Every deviation from §1/§5 gets a line here, so drift is visible instead of di
 | Time | Change | Why | Logged by |
 |---|---|---|---|
 | (backfilled) | Shipped a real Leaflet/OSM map instead of the flat zone list | Demos better, and the team built it before this doc existed | steering doc audit |
+| 2026-09-12 | A teammate independently pushed `QUEST-ROADMAP.md`, a second competing plan doc, minutes after this file was first committed | Two people wrote "the plan" at once without coordinating — the exact drift this file exists to catch | steering doc audit |
+| 2026-09-12 | `QUEST-ROADMAP.md` merged into this file and retired; its neighborhood-pan, mock-board, and tier-label proposals folded into §4B | Team decision: one steering doc, not two | user + steering doc |
+| 2026-09-12 | Kept MongoDB in tonight's plan (§5) despite `QUEST-ROADMAP.md` recommending skip-tonight | Team decision, made consciously rather than by whichever doc someone had open | user |
 | | | | |
 
 ---

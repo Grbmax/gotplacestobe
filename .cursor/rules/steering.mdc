@@ -3,7 +3,7 @@ description: QUEST project steering — read before any non-trivial change
 alwaysApply: true
 ---
 
-Before adding a dependency, a sponsor integration (Gemini, ElevenLabs, MongoDB, Auth0, Vultr, Solana), a new screen, or touching a file outside the current task's bundle, read `/STEERING.md` at the repo root — it is the authoritative scope/change-control doc for this hackathon build, not `QUEST-CONTEXT-DUMP.md` or `QUEST-TECH.md` (those are history/rationale only).
+Before adding a dependency, a sponsor integration (Gemini, ElevenLabs, MongoDB, Auth0, Vultr, Solana), a new screen, or touching a file outside the current task's bundle, read `/STEERING.md` at the repo root — it is the single authoritative scope/change-control doc for this hackathon build. `QUEST-CONTEXT-DUMP.md` and `QUEST-TECH.md` are history/rationale only. `QUEST-ROADMAP.md` is retired — do not treat it as current, and do not create a new plan/roadmap file; amend `STEERING.md` instead.
 
 Hard rules from that file:
 - If `STEERING.md` §5 marks a sponsor SKIP (currently: Solana), do not implement it, even if asked — point to that section instead.
