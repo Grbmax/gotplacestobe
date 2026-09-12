@@ -103,6 +103,12 @@ async function ensureSeed() {
     const db = await getDb();
     const count = await db.collection("properties").countDocuments();
     if (count > 0) {
+      // Self-heal: an old seed run (before `isSample` existed on this schema) can leave
+      // the sample property without the flag, which silently defeats every guard that
+      // checks it — never scan onto it, never reuse it as an address match, etc.
+      await db
+        .collection<PropertyDoc>("properties")
+        .updateOne({ _id: SAMPLE_PROPERTY_ID }, { $set: { isSample: true } });
       mem.mongoSeeded = true;
       return;
     }
@@ -173,6 +179,7 @@ function asScan(doc: ScanDoc): Scan {
     scannedBy: doc.scannedBy,
     scannedByName: doc.scannedByName,
     escalations: doc.escalations,
+    degraded: doc.degraded,
   };
 }
 
@@ -216,6 +223,10 @@ async function consolidateDuplicateHouses() {
     : (await (await getDb()).collection<PropertyDoc>("properties").find({}).toArray()).map(asProperty);
   const groups = new Map<string, Property[]>();
   for (const p of props) {
+    // The sample property is fixed demo data — never a merge/keep candidate, and never
+    // a deletion target. Without this, any real property sharing its address gets
+    // silently deleted here (it always "loses" to the sample's seeded scan count).
+    if (p.isSample) continue;
     const key = keyOf(p);
     if (!key.split("|")[0]) continue;
     const list = groups.get(key) ?? [];
@@ -267,7 +278,10 @@ export async function createProperty(input: {
   await ensureSeed();
   const raw = [input.label.trim(), input.unit?.trim() ? `Apt ${input.unit.trim()}` : ""].filter(Boolean).join(" ");
   const placeKey = placeKeyFromAddress(raw);
-  const existing = (await listProperties()).find((p) => keyOf(p) === placeKey);
+  // Never reuse the seeded sample property just because someone's real address
+  // happens to normalize to the same key (e.g. typing "5614 Beacon St" again) —
+  // that would silently hand them fixed demo data and block them from scanning.
+  const existing = (await listProperties()).find((p) => !p.isSample && keyOf(p) === placeKey);
   if (existing) return { property: existing, reused: true };
 
   const cityContext = await lookupCityContext(raw);
@@ -414,7 +428,11 @@ export async function createScan(input: {
 
   const scanId = id("scan");
   const detected = await runDetect(input.image);
-  const civic = escalateDetections(detected.detections, property?.cityContext);
+  // Never layer legal/escalation commentary onto a degraded (Gemini-failed) reading —
+  // there's nothing real underneath it to escalate.
+  const civic = detected.degraded
+    ? { detections: detected.detections, findingExtra: undefined, escalations: [] }
+    : escalateDetections(detected.detections, property?.cityContext);
   const detections = civic.detections;
   const finding = civic.findingExtra
     ? `${detected.finding} ${civic.findingExtra}`
@@ -453,6 +471,7 @@ export async function createScan(input: {
     totalAffectedRatio: totalAffectedRatio(detections),
     finding,
     detector: detected.detector,
+    degraded: detected.degraded,
     escalations: civic.escalations.length ? civic.escalations : undefined,
     scannedBy: input.scannedBy,
     scannedByName: input.scannedByName,

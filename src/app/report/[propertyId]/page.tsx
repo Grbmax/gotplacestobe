@@ -21,7 +21,7 @@ import {
   trendLabel,
   verdictLabel,
 } from "@/lib/labels";
-import { guidedVsNaiveSummary } from "@/lib/optimize";
+import { guidedVsNaiveSummary, totalDistinctDefects } from "@/lib/optimize";
 import { civicAlong, surfaceTrend } from "@/lib/progression";
 import type { Property, Review, Scan } from "@/lib/types";
 
@@ -145,15 +145,34 @@ export default function ReportPage() {
 
       {(() => {
         const summary = guidedVsNaiveSummary(scans);
-        if (!summary) return null;
+        if (summary) {
+          return (
+            <Link
+              href={`/optimize/${propertyId}`}
+              className="mt-4 block rounded-2xl border border-emerald-400/30 bg-emerald-400/10 p-4"
+            >
+              <p className="text-[11px] uppercase tracking-[0.18em] text-emerald-300">Guided vs. naive</p>
+              <p className="mt-2 text-sm leading-relaxed text-emerald-100">{summary.sentence}</p>
+              <p className="mt-2 text-xs text-emerald-300">See the chart →</p>
+            </Link>
+          );
+        }
+        // Not enough data yet for a real comparison — still link through instead of
+        // vanishing entirely, so the feature isn't only reachable by typing the URL.
+        const total = totalDistinctDefects(scans);
+        const hint =
+          scans.length < 3
+            ? `Take ${3 - scans.length} more photo${3 - scans.length === 1 ? "" : "s"} to unlock this`
+            : total === 0
+              ? "No defects found across your scans yet — nothing to compare"
+              : "Not enough data yet";
         return (
           <Link
             href={`/optimize/${propertyId}`}
-            className="mt-4 block rounded-2xl border border-emerald-400/30 bg-emerald-400/10 p-4"
+            className="mt-4 block rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4"
           >
-            <p className="text-[11px] uppercase tracking-[0.18em] text-emerald-300">Guided vs. naive</p>
-            <p className="mt-2 text-sm leading-relaxed text-emerald-100">{summary.sentence}</p>
-            <p className="mt-2 text-xs text-emerald-300">See the chart →</p>
+            <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">Guided vs. naive</p>
+            <p className="mt-2 text-sm leading-relaxed text-zinc-400">{hint}</p>
           </Link>
         );
       })()}
@@ -289,7 +308,7 @@ export default function ReportPage() {
                         <p className="px-1 text-xs text-zinc-500">
                           {verdictLabel(scan.review.verdict)} by{" "}
                           {scan.review.reviewerName ?? roleLabel(scan.review.reviewerRole)} ·{" "}
-                          <DetectorBadge detector={scan.detector} sample={scan.isSample} />
+                          <DetectorBadge detector={scan.detector} sample={scan.isSample} degraded={scan.degraded} />
                         </p>
                       )}
                     </li>

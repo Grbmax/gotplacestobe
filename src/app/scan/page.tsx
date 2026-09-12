@@ -266,16 +266,26 @@ export default function ScanPage() {
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black via-black/80 to-transparent p-4 pb-6 pt-16">
         <div className="pointer-events-auto space-y-3">
           {resultScan && (
-            <div className="rounded-2xl bg-zinc-900/95 p-4">
-              {(resultScan.detector === "mock" || resultScan.isSample) && (
+            <div
+              className={`rounded-2xl p-4 ${
+                resultScan.degraded ? "border-2 border-rose-500 bg-rose-950/40" : "bg-zinc-900/95"
+              }`}
+            >
+              {(resultScan.detector === "mock" || resultScan.isSample || resultScan.degraded) && (
                 <div className="mb-2">
-                  <DetectorBadge detector={resultScan.detector} sample={resultScan.isSample} />
+                  <DetectorBadge
+                    detector={resultScan.detector}
+                    sample={resultScan.isSample}
+                    degraded={resultScan.degraded}
+                  />
                 </div>
               )}
               <p className="text-sm leading-relaxed">{resultScan.finding}</p>
-              <p className={`mt-2 text-xs ${severityTextClass(severityFromRatio(resultScan.totalAffectedRatio))}`}>
-                {thisFrameFlaggedCopy(resultScan.totalAffectedRatio)}
-              </p>
+              {!resultScan.degraded && (
+                <p className={`mt-2 text-xs ${severityTextClass(severityFromRatio(resultScan.totalAffectedRatio))}`}>
+                  {thisFrameFlaggedCopy(resultScan.totalAffectedRatio)}
+                </p>
+              )}
               <p className="mt-3 text-sm font-medium text-emerald-200">
                 Now point at {roomSurfaceLabel(room, surface)}
               </p>
