@@ -6,6 +6,7 @@ import { DetectorBadge } from "@/components/DetectorBadge";
 import { IdentityChip } from "@/components/IdentityChip";
 import { SurfacePrompt } from "@/components/SurfacePrompt";
 import { Viewfinder } from "@/components/Viewfinder";
+import { citationLines } from "@/lib/articleVi";
 import { useIdentity } from "@/lib/IdentityContext";
 import {
   escalationSentence,
@@ -209,6 +210,11 @@ export default function ScanPage() {
                 <DetectorBadge detector={resultScan.detector} sample={resultScan.isSample} />
               </div>
               <p className="mt-2 text-sm leading-relaxed">{resultScan.finding}</p>
+              {citationLines(resultScan.detections).map((c) => (
+                <p key={c} className="mt-1 text-[11px] leading-snug text-amber-200">
+                  {c}
+                </p>
+              ))}
               {resultScan.escalations?.length
                 ? resultScan.escalations.map((e) => (
                     <p key={`${e.cls}-${e.to}`} className="mt-2 text-xs leading-snug text-rose-300">

@@ -1,3 +1,4 @@
+import { buildLeadLine } from "./water";
 import type {
   AreaLead,
   CityContext,
@@ -248,14 +249,6 @@ function streetTokenMatch(street: string, tokens: string[]) {
   return need.every((t) => have.includes(t) || street.toUpperCase().includes(t));
 }
 
-function looksLikeLeadLine(row?: Rec | null) {
-  if (!row) return false;
-  const blob = `${asText(row.public_status)} ${asText(row.private_status)}`.toUpperCase();
-  if (!blob.includes("LEAD")) return false;
-  if (/\bNON[- ]?LEAD\b/.test(blob) && !/\bLEAD\b/.test(blob.replace(/NON[- ]?LEAD/g, ""))) return false;
-  return true;
-}
-
 function civicPulse(rows: Rec[], tokens: string[]): CivicPulse {
   const matched = rows.filter((row) => {
     const street = asText(row.street || row.address);
@@ -476,7 +469,8 @@ export async function lookupCityContext(address: string): Promise<CityContext> {
     );
     const year = Number.isFinite(yearBuilt) ? yearBuilt : null;
     const leadPaintLikely = Boolean(year && year > 0 && year < 1978);
-    const leadServiceLine = looksLikeLeadLine(leadRows[0]);
+    const leadLine = buildLeadLine(leadRows[0], zipCode);
+    const leadServiceLine = leadLine.isLead;
     const civic = civicPulse(threeOneOne, parsed.tokens);
 
     const zipRow = zipEbllRows.find((row) => asText(row["Zip Code"]).slice(0, 5) === zipCode);
@@ -517,6 +511,7 @@ export async function lookupCityContext(address: string): Promise<CityContext> {
       neighborhood: asText(assessment?.NEIGHDESC || assessment?.PROPERTYCITY) || undefined,
       leadPaintLikely,
       leadServiceLine,
+      leadLine,
       leadPaintNote: leadNote(year && year > 0 ? year : null, leadRows[0]),
       areaLead,
       civic,
@@ -527,6 +522,8 @@ export async function lookupCityContext(address: string): Promise<CityContext> {
   } catch (err) {
     return emptyContext({
       ok: false,
+      zipCode: parsed.zip || undefined,
+      leadLine: buildLeadLine(undefined, parsed.zip || undefined),
       error: err instanceof Error ? err.message : "County records unavailable",
       leadPaintNote: "Could not reach WPRDC. Move-in photos still work.",
     });

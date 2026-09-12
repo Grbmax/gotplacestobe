@@ -1,3 +1,4 @@
+import { citationLines } from "@/lib/articleVi";
 import { escalationSentence } from "@/lib/labels";
 import type { CityContext, DefectClass, EbllLevel, Scan } from "@/lib/types";
 
@@ -58,7 +59,11 @@ export function dashboardTiles(context: CityContext | undefined, scans: Scan[]):
       read:
         "HUD treats pre-1978 housing as likely to contain lead-based paint unless it has been certified otherwise. Peeling or chipped paint here is a health-housing issue, not cosmetic. Use wet-cleaning and licensed abatement if paint will be disturbed.",
       notes: [
-        context.leadServiceLine ? "PWSA records flag a lead service line on this parcel." : "",
+        context.leadLine?.isLead
+          ? context.leadLine.summary
+          : context.leadServiceLine
+            ? "Water-authority records flag a lead service line on this parcel."
+            : "",
         context.parcelId ? `PIN ${context.parcelId}` : "",
       ].filter(Boolean),
     });
@@ -168,10 +173,13 @@ export function dashboardTiles(context: CityContext | undefined, scans: Scan[]):
       read: leadHazard
         ? "Peeling paint in this walkthrough was elevated from cosmetic failure to high lead-hazard priority because of year built, neighborhood blood-lead rates, or a PWSA lead-line flag. Confirm the photo, then document repairs with the landlord."
         : "These flags come from Gemini (or the mock detector). Confirm or dispute each photo before treating it as a claim. Moisture plus nearby 311 water reports raises seepage and mold to a flooding priority.",
-      notes: scans
-        .flatMap((s) => s.escalations ?? [])
-        .slice(0, 4)
-        .map((e) => escalationSentence(e)),
+      notes: [
+        ...scans.flatMap((s) => citationLines(s.detections)).slice(0, 6),
+        ...scans
+          .flatMap((s) => s.escalations ?? [])
+          .slice(0, 3)
+          .map((e) => escalationSentence(e)),
+      ],
     });
   } else {
     tiles.push({

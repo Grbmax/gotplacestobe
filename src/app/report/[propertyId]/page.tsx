@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { HouseDashboard } from "@/components/HouseDashboard";
 import { CompareView } from "@/components/CompareView";
 import { DetectorBadge } from "@/components/DetectorBadge";
+import { EvidencePrint } from "@/components/EvidencePrint";
 import { IdentityChip } from "@/components/IdentityChip";
 import { ScanCard } from "@/components/ScanCard";
 import { Timeline } from "@/components/Timeline";
@@ -48,7 +49,7 @@ export default function ReportPage() {
     ]);
     const pData = (await pRes.json()) as { property?: Property };
     let next = pData.property ?? null;
-    if (next && (!next.cityContext || !next.cityContext.areaLead || !next.cityContext.civic)) {
+    if (next && (!next.cityContext || !next.cityContext.areaLead || !next.cityContext.civic || !next.cityContext.leadLine)) {
       const refresh = await fetch(`/api/properties/${propertyId}`, { method: "POST" });
       const rData = (await refresh.json()) as { property?: Property };
       next = rData.property ?? next;
@@ -100,6 +101,10 @@ export default function ReportPage() {
     await load();
   }
 
+  function exportPdf() {
+    window.print();
+  }
+
   if (!property && !error) {
     return <main className="grid min-h-dvh place-items-center text-zinc-400">Loading report…</main>;
   }
@@ -110,8 +115,15 @@ export default function ReportPage() {
         <Link href="/" className="text-xs uppercase tracking-[0.2em] text-emerald-400">
           SCAN
         </Link>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2 print:hidden">
           <IdentityChip />
+          <button
+            type="button"
+            onClick={exportPdf}
+            className="rounded-full border border-emerald-500/40 px-3 py-1.5 text-xs text-emerald-200"
+          >
+            Export PDF
+          </button>
           <Link
             href={`/scan?propertyId=${propertyId}`}
             className="rounded-full bg-emerald-400 px-3 py-1.5 text-xs font-semibold text-black"
@@ -213,12 +225,14 @@ export default function ReportPage() {
                 : trend.direction === "stable"
                   ? "bg-zinc-500/20 text-zinc-300"
                   : "bg-zinc-700/40 text-zinc-400";
+          const badgeLabel =
+            trend.direction === "worsening" ? "Worsening — Landlord Inaction" : trendLabel(trend.direction);
           return (
             <section key={g.key}>
               <div className="flex items-center justify-between gap-2">
                 <h2 className="text-lg font-medium">{roomSurfaceLabel(g.room, g.surface)}</h2>
                 <span className={`rounded-full px-2.5 py-1 text-[10px] font-medium tracking-wide ${badge}`}>
-                  {trendLabel(trend.direction)}
+                  {badgeLabel}
                 </span>
               </div>
 
@@ -226,6 +240,7 @@ export default function ReportPage() {
                 <Timeline
                   points={trend.points}
                   civic={civicAlong(trend.points, property?.cityContext?.civic?.monthly)}
+                  direction={trend.direction}
                 />
               </div>
 
@@ -276,6 +291,8 @@ export default function ReportPage() {
           );
         })}
       </div>
+
+      {property && <EvidencePrint property={property} scans={scans} role={role} />}
     </main>
   );
 }
