@@ -68,3 +68,7 @@ body {
     color: #3f3f46 !important;
   }
 }
+
+.scan-map .mapboxgl-ctrl-attrib {
+  font-size: 10px;
+}

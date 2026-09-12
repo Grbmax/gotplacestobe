@@ -20,6 +20,7 @@ export async function POST(request: NextRequest) {
     source?: "capture" | "upload";
     scannedBy?: string;
     scannedByName?: string;
+    walkId?: string;
   };
   if (!body.propertyId || !body.room || !body.surface || !body.image) {
     return Response.json({ error: "Missing fields" }, { status: 400 });
@@ -35,6 +36,7 @@ export async function POST(request: NextRequest) {
     source: body.source === "upload" ? "upload" : "capture",
     scannedBy: body.scannedBy,
     scannedByName: body.scannedByName,
+    walkId: body.walkId,
   });
   if ("error" in result) return Response.json(result, { status: 400 });
   return Response.json(result);

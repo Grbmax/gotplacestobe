@@ -263,7 +263,7 @@ export function Viewfinder({
       )}
 
       {started && !analyzing && !frozenUrl && (
-        <div className="absolute bottom-8 left-1/2 z-10 flex -translate-x-1/2 items-center gap-4">
+        <div className="absolute bottom-[5.75rem] left-1/2 z-10 flex -translate-x-1/2 items-center gap-4">
           <button
             type="button"
             onClick={() => fileRef.current?.click()}

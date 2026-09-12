@@ -3,18 +3,20 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { AddHouseSheet } from "@/components/AddHouseSheet";
 import { CityContextCard } from "@/components/CityContextCard";
 import { IdentityChip } from "@/components/IdentityChip";
 import { useIdentity } from "@/lib/IdentityContext";
 import { ROLE_BLURB } from "@/lib/identity";
 import {
-  PROPERTY_KINDS,
   kindLabel,
   lastFrameFlaggedCopy,
   severityFromRatio,
   severityTextClass,
 } from "@/lib/labels";
 import { formatScanTime } from "@/lib/time";
+import { cityContextNeedsRefresh } from "@/lib/dashboard";
+import { rememberHouse } from "@/lib/activeHouse";
 import type { Property } from "@/lib/types";
 
 const DEMO_PROPERTY_ID = "prop_sample_beacon";
@@ -31,15 +33,26 @@ type Summary = {
   scanCount: number;
 };
 
+type Filter = "mine" | "addresses" | "all";
+
+function isStreetAddress(label: string) {
+  return /^\d+\s+[A-Za-z]/.test(label.trim());
+}
+
+const HINT: Record<string, string> = {
+  tenant: "Houses is the file. Scan, Report, and Proof each ask which address first.",
+  owner: "Tap a house to review it. Scan / Report / Proof still ask which address.",
+  inspector: "Select a file here, or open Report and pick the address you are signing.",
+};
+
 export default function HomePage() {
   const { identity } = useIdentity();
   const router = useRouter();
   const [rows, setRows] = useState<Summary[] | null>(null);
-  const [showAll, setShowAll] = useState(false);
-  const [label, setLabel] = useState("");
-  const [unit, setUnit] = useState("");
-  const [kind, setKind] = useState<Property["kind"]>("lease");
-  const [busy, setBusy] = useState(false);
+  const [filter, setFilter] = useState<Filter>("addresses");
+  const [query, setQuery] = useState("");
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
@@ -47,7 +60,7 @@ export default function HomePage() {
     const data = (await res.json()) as { properties: Property[] };
     const properties = [...data.properties];
     for (const property of properties.slice(0, 8)) {
-      if (property.cityContext?.areaLead) continue;
+      if (!cityContextNeedsRefresh(property.cityContext)) continue;
       const refreshed = await fetch(`/api/properties/${property.id}`, { method: "POST" });
       if (!refreshed.ok) continue;
       const body = (await refreshed.json()) as { property?: Property };
@@ -85,44 +98,71 @@ export default function HomePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function createProperty(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/properties", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          label,
-          kind,
-          unit: unit.trim() || undefined,
-          createdBy: identity.id,
-          createdByName: identity.name,
-        }),
-      });
-      const data = (await res.json()) as { property?: Property; reused?: boolean; error?: string };
-      if (!res.ok || !data.property) throw new Error(data.error ?? "create failed");
-      setLabel("");
-      setUnit("");
-      router.push(`/scan?propertyId=${data.property.id}`);
-    } catch {
-      setError("Could not create property");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   const visible = useMemo(() => {
     if (!rows) return [];
-    if (showAll) return rows;
-    return rows.filter((r) => isDemoHouse(r.property) || r.property.createdBy === identity.id);
-  }, [rows, showAll, identity.id]);
+    const q = query.trim().toLowerCase();
+    const mine = (r: Summary) => isDemoHouse(r.property) || r.property.createdBy === identity.id;
+    const pool =
+      filter === "mine"
+        ? rows.filter(mine)
+        : filter === "addresses"
+          ? rows.filter((r) => mine(r) || isStreetAddress(r.property.label))
+          : rows;
+    const searched = q
+      ? pool.filter(
+          (r) =>
+            r.property.label.toLowerCase().includes(q) ||
+            (r.property.unit ?? "").toLowerCase().includes(q) ||
+            (r.property.cityContext?.zipCode ?? "").includes(q),
+        )
+      : pool;
+    return [...searched].sort((a, b) => {
+      const rank = (r: Summary) => {
+        let n = 0;
+        if (r.property.createdBy === identity.id) n += 8;
+        if (r.worsening) n += 4;
+        if (r.scanCount > 0) n += 2;
+        if (isStreetAddress(r.property.label)) n += 1;
+        if (isDemoHouse(r.property)) n -= 6;
+        return n;
+      };
+      const d = rank(b) - rank(a);
+      if (d !== 0) return d;
+      return a.property.label.localeCompare(b.property.label);
+    });
+  }, [rows, filter, query, identity.id]);
+
+  useEffect(() => {
+    if (!visible.length) {
+      setActiveId(null);
+      return;
+    }
+    setActiveId((cur) => {
+      if (cur && visible.some((r) => r.property.id === cur)) return cur;
+      return (
+        visible.find((r) => r.property.createdBy === identity.id && !isDemoHouse(r.property))?.property.id ??
+        visible.find((r) => !isDemoHouse(r.property))?.property.id ??
+        visible[0]!.property.id
+      );
+    });
+  }, [visible, identity.id]);
+
+  useEffect(() => {
+    if (!activeId) return;
+    const row = visible.find((r) => r.property.id === activeId);
+    if (row && !isDemoHouse(row.property)) rememberHouse(activeId);
+  }, [activeId, visible]);
 
   const hiddenCount = rows ? rows.length - visible.length : 0;
 
+  const filters: { id: Filter; label: string }[] = [
+    { id: "addresses", label: "On file" },
+    { id: "mine", label: "Mine" },
+    { id: "all", label: "All" },
+  ];
+
   return (
-    <main className="mx-auto min-h-dvh max-w-md px-5 pb-16 pt-8 text-slate-900">
+    <main className="mx-auto min-h-dvh max-w-md px-5 pb-28 pt-8 text-slate-900">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-[11px] font-medium tracking-[0.12em] text-emerald-700">CribCheck</p>
@@ -131,133 +171,200 @@ export default function HomePage() {
         <IdentityChip className="mt-1 shrink-0" />
       </div>
       <p className="mt-2 text-sm text-slate-500">{ROLE_BLURB[identity.role]}</p>
-      <p className="mt-2 text-sm text-slate-500">
-        Enter the rental once. Same street address reopens that house. Different apartments stay separate reports.
-      </p>
+      <p className="mt-1 text-sm text-slate-500">{HINT[identity.role]}</p>
 
-      <form onSubmit={createProperty} className="mt-8 space-y-3 rounded-2xl border border-slate-200 bg-white p-4">
-        <label className="block text-[11px] uppercase tracking-[0.18em] text-slate-500">Rental address</label>
+      <div className="mt-5 flex gap-2">
+        <label className="sr-only" htmlFor="house-search">
+          Search houses
+        </label>
         <input
-          value={label}
-          onChange={(e) => setLabel(e.target.value)}
-          placeholder="5614 Beacon St"
-          className="w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm outline-none focus:border-emerald-600"
-          required
+          id="house-search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search address or ZIP"
+          className="min-w-0 flex-1 rounded-full border border-slate-300 bg-white px-4 py-2.5 text-sm outline-none focus:border-emerald-600"
         />
-        <label className="block text-[11px] uppercase tracking-[0.18em] text-slate-500">Apt / unit (if any)</label>
-        <input
-          value={unit}
-          onChange={(e) => setUnit(e.target.value)}
-          placeholder="2B"
-          className="w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm outline-none focus:border-emerald-600"
-        />
-        <div className="grid grid-cols-3 gap-2" role="group" aria-label="Property type">
-          {PROPERTY_KINDS.map((item) => {
-            const selected = kind === item.value;
-            return (
-              <button
-                key={item.value}
-                type="button"
-                onClick={() => setKind(item.value)}
-                aria-pressed={selected}
-                className={
-                  selected
-                    ? "rounded-xl border border-emerald-600 bg-emerald-50 py-3 text-sm font-medium text-emerald-800"
-                    : "rounded-xl border border-slate-200 bg-slate-50 py-3 text-sm text-slate-600"
-                }
-              >
-                {item.label}
-              </button>
-            );
-          })}
-        </div>
         <button
-          type="submit"
-          disabled={busy}
-          className="w-full rounded-full bg-emerald-600 py-3 text-sm font-semibold text-white disabled:opacity-50"
+          type="button"
+          onClick={() => {
+            setAdding(true);
+          }}
+          className="shrink-0 rounded-full bg-emerald-600 px-3.5 py-2.5 text-xs font-semibold text-white"
         >
-          {busy ? "Opening house…" : "Set up this house"}
+          + Add
         </button>
-      </form>
+      </div>
+
+      <div className="mt-3 grid grid-cols-3 rounded-full border border-slate-200 bg-white p-1 text-xs font-medium">
+        {filters.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => setFilter(item.id)}
+            aria-pressed={filter === item.id}
+            className={
+              filter === item.id ? "rounded-full bg-emerald-600 py-2 text-white" : "rounded-full py-2 text-slate-500"
+            }
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
 
       {error && <p className="mt-3 text-sm text-rose-600">{error}</p>}
 
-      {rows === null ? (
-        <div className="mt-8 space-y-3">
-          {[0, 1].map((i) => (
-            <div key={i} className="h-24 animate-pulse rounded-2xl border border-slate-200 bg-slate-100" />
-          ))}
-        </div>
-      ) : visible.length === 0 ? (
-        <div className="mt-10 rounded-2xl border border-dashed border-slate-300 p-6 text-center">
-          <p className="text-sm text-slate-500">No properties yet.</p>
-          <p className="mt-1 text-xs text-slate-400">Add one above, or open the demo report when it appears.</p>
-        </div>
-      ) : (
-        <ul className="mt-8 space-y-3">
-          {visible.map(({ property, lastScannedAt, lastRatio, worsening, scanCount }) => {
-            const severity = severityFromRatio(lastRatio, worsening);
-            return (
-              <li key={property.id}>
-                <div
-                  className={`rounded-2xl border bg-white ${
-                    isDemoHouse(property) ? "border-sky-300" : "border-slate-200"
-                  }`}
-                >
-                  <Link href={`/report/${property.id}`} className="block p-4 transition hover:border-slate-400">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <p className="text-lg font-medium">{property.label}</p>
-                          {isDemoHouse(property) && (
-                            <span className="rounded-full border border-slate-300 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-                              Demo report
-                            </span>
-                          )}
-                        </div>
-                        <p className="mt-1 text-xs text-slate-500">
-                          {isDemoHouse(property)
-                            ? "Sample report — read-only"
-                            : `${kindLabel(property.kind)}${property.unit ? ` · Apt ${property.unit}` : ""}`}
-                        </p>
-                      </div>
-                      {!isDemoHouse(property) && (
-                        <p className={`max-w-[46%] text-right text-xs leading-snug ${severityTextClass(severity)}`}>
-                          {lastFrameFlaggedCopy(lastRatio)}
-                        </p>
-                      )}
-                    </div>
-                    <p className="mt-3 text-xs text-slate-500">
-                      {scanCount} {scanCount === 1 ? "photo" : "photos"}
-                      {lastScannedAt ? ` · last ${formatScanTime(lastScannedAt)}` : " · no photos yet"}
-                    </p>
-                    {!isDemoHouse(property) && <CityContextCard context={property.cityContext} compact />}
-                  </Link>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
+      <div className="mt-4 space-y-3">
+        {rows === null ? (
+          <div className="space-y-3">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="h-28 animate-pulse rounded-2xl border border-slate-200 bg-slate-100" />
+            ))}
+          </div>
+        ) : visible.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-8 text-center">
+            <p className="text-sm text-slate-700">No houses in this view.</p>
+            <p className="mt-1 text-xs text-slate-500">
+              {query ? "Clear search, or add this address." : "Add a rental address to start the walkthrough."}
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                setAdding(true);
+              }}
+              className="mt-4 rounded-full bg-emerald-600 px-4 py-2 text-xs font-semibold text-white"
+            >
+              Add a house
+            </button>
+          </div>
+        ) : (
+          visible.map((row) => (
+            <HouseCard
+              key={row.property.id}
+              row={row}
+              selected={row.property.id === activeId}
+              onSelect={() => setActiveId(row.property.id)}
+            />
+          ))
+        )}
+      </div>
+
+      {hiddenCount > 0 && filter !== "all" && !query && (
+        <button
+          type="button"
+          onClick={() => setFilter("all")}
+          className="mt-4 w-full text-center text-xs text-slate-500 underline underline-offset-4"
+        >
+          Show {hiddenCount} more, including test names
+        </button>
+      )}
+      {filter === "all" && (
+        <button
+          type="button"
+          onClick={() => setFilter("addresses")}
+          className="mt-4 w-full text-center text-xs text-slate-500 underline underline-offset-4"
+        >
+          Hide test names
+        </button>
       )}
 
-      {hiddenCount > 0 && !showAll && (
-        <button
-          type="button"
-          onClick={() => setShowAll(true)}
-          className="mt-4 w-full text-center text-xs text-slate-500 underline underline-offset-4"
-        >
-          {hiddenCount} other people scanned a place today
-        </button>
-      )}
-      {showAll && (
-        <button
-          type="button"
-          onClick={() => setShowAll(false)}
-          className="mt-4 w-full text-center text-xs text-slate-500 underline underline-offset-4"
-        >
-          Show only mine
-        </button>
-      )}
+      <AddHouseSheet
+        open={adding}
+        initialLabel={query.trim()}
+        onClose={() => setAdding(false)}
+        onCreated={(property) => {
+          setAdding(false);
+          rememberHouse(property.id);
+          router.push(`/scan?propertyId=${property.id}`);
+        }}
+      />
     </main>
+  );
+}
+
+function HouseCard({
+  row,
+  selected,
+  onSelect,
+}: {
+  row: Summary;
+  selected?: boolean;
+  onSelect: () => void;
+}) {
+  const { property, lastScannedAt, lastRatio, worsening, scanCount } = row;
+  const severity = severityFromRatio(lastRatio, worsening);
+  const scanHref = `/scan?propertyId=${property.id}`;
+  const reportHref = `/report/${property.id}`;
+  const demo = isDemoHouse(property);
+
+  return (
+    <section
+      className={`rounded-2xl border bg-white p-4 ${
+        selected ? "border-emerald-600 shadow-[0_0_0_1px_rgba(5,150,105,0.25)]" : demo ? "border-sky-300" : "border-slate-200"
+      }`}
+    >
+      <button type="button" onClick={onSelect} className="w-full text-left" aria-pressed={selected}>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            {selected && (
+              <p className="text-[10px] uppercase tracking-[0.16em] text-emerald-700">Selected</p>
+            )}
+            <div className={`flex flex-wrap items-center gap-2 ${selected ? "mt-0.5" : ""}`}>
+              <h2 className="text-lg font-medium leading-snug">{property.label}</h2>
+              {demo && (
+                <span className="rounded-full border border-slate-300 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                  Demo
+                </span>
+              )}
+            </div>
+            <p className="mt-1 text-xs text-slate-500">
+              {demo ? "Sample report — read-only" : `${kindLabel(property.kind)}${property.unit ? ` · Apt ${property.unit}` : ""}`}
+            </p>
+          </div>
+          <div className="flex max-w-[44%] flex-col items-end gap-1">
+            {worsening && (
+              <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-rose-700">
+                Worsening
+              </span>
+            )}
+            {!demo && (
+              <p className={`text-right text-xs leading-snug ${severityTextClass(severity)}`}>
+                {lastFrameFlaggedCopy(lastRatio)}
+              </p>
+            )}
+          </div>
+        </div>
+        <p className="mt-2 text-xs text-slate-500">
+          {scanCount} {scanCount === 1 ? "photo" : "photos"}
+          {(property.walks?.length ?? 0) > 1 ? ` · ${property.walks!.length} records` : ""}
+          {lastScannedAt ? ` · ${formatScanTime(lastScannedAt)}` : " · no photos yet"}
+        </p>
+      </button>
+      {!demo && <CityContextCard context={property.cityContext} compact />}
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <Link
+          href={reportHref}
+          onClick={onSelect}
+          className="rounded-full border border-slate-300 py-2.5 text-center text-xs"
+        >
+          Open report
+        </Link>
+        {!demo ? (
+          <Link
+            href={scanHref}
+            onClick={onSelect}
+            className="rounded-full bg-emerald-600 py-2.5 text-center text-xs font-semibold text-white"
+          >
+            {scanCount ? "Continue scan" : "Start scan"}
+          </Link>
+        ) : (
+          <Link
+            href={reportHref}
+            className="rounded-full border border-slate-200 py-2.5 text-center text-xs text-slate-500"
+          >
+            View demo
+          </Link>
+        )}
+      </div>
+    </section>
   );
 }

@@ -57,6 +57,17 @@ export function HouseDashboard({
   const selected = tiles.find((t) => t.id === selectedId) ?? null;
   const line = context?.leadLine ?? (context ? buildLeadLine(undefined, context.zipCode) : undefined);
   const fileTile = tiles.find((t) => t.id === "file");
+  const chips = [
+    context?.yearBuilt
+      ? context.nearby?.used && !context.parcelId
+        ? `~${context.yearBuilt} nearby`
+        : `Built ${context.yearBuilt}`
+      : null,
+    context?.zipCode ? `ZIP ${context.zipCode}` : null,
+    grant.eligible ? "$12k repairs" : null,
+    fileTile?.title && fileTile.title.startsWith("No") ? null : fileTile?.title,
+    line?.isLead ? "Lead water line" : null,
+  ].filter((c): c is string => Boolean(c));
   const inspections = context?.inspections ?? [];
   const violations = context?.violations ?? [];
   const topInsp = inspections[0];
@@ -92,6 +103,18 @@ export function HouseDashboard({
             <p className="mt-1 text-sm font-medium leading-snug">{title}</p>
             {detailBits.length ? (
               <p className="mt-1 text-[11px] leading-snug opacity-80">{detailBits.join(" · ")}</p>
+            ) : null}
+            {chips.length ? (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {chips.slice(0, 4).map((chip) => (
+                  <span
+                    key={chip}
+                    className="rounded-full border border-slate-300/80 bg-white/70 px-2 py-0.5 text-[10px] tracking-wide"
+                  >
+                    {chip}
+                  </span>
+                ))}
+              </div>
             ) : null}
             <a
               href={WPRDC_HCE}

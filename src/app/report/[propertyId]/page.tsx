@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { BackLink } from "@/components/BackLink";
+import { HouseSelect } from "@/components/HouseSelect";
 import { HouseDashboard } from "@/components/HouseDashboard";
 import { CompareView } from "@/components/CompareView";
 import { DetectorBadge } from "@/components/DetectorBadge";
@@ -21,8 +22,11 @@ import {
   trendLabel,
   verdictLabel,
 } from "@/lib/labels";
+import { cityContextNeedsRefresh } from "@/lib/dashboard";
+import { rememberHouse } from "@/lib/activeHouse";
 import { guidedVsNaiveSummary, totalDistinctDefects } from "@/lib/optimize";
 import { civicAlong, surfaceTrend } from "@/lib/progression";
+import { scansForWalk, walkKindLabel, walksChronological } from "@/lib/walks";
 import type { Property, Review, Scan } from "@/lib/types";
 
 type Group = {
@@ -47,6 +51,8 @@ export default function ReportPage() {
   const role = reviewingAsSelf ? identity.role : overrideRole;
   const [error, setError] = useState<string | null>(null);
   const [modelOnly, setModelOnly] = useState(true);
+  const [walkFilter, setWalkFilter] = useState<string>("all");
+  const [status, setStatus] = useState<"loading" | "ready" | "missing">("loading");
 
   const load = useCallback(async () => {
     const [pRes, sRes] = await Promise.all([
@@ -55,7 +61,13 @@ export default function ReportPage() {
     ]);
     const pData = (await pRes.json()) as { property?: Property };
     let next = pData.property ?? null;
-    if (next && (!next.cityContext || !next.cityContext.areaLead || !next.cityContext.civic || !next.cityContext.leadLine)) {
+    if (!pRes.ok || !next) {
+      setProperty(null);
+      setScans([]);
+      setStatus("missing");
+      return;
+    }
+    if (cityContextNeedsRefresh(next.cityContext)) {
       const refresh = await fetch(`/api/properties/${propertyId}`, { method: "POST" });
       const rData = (await refresh.json()) as { property?: Property };
       next = rData.property ?? next;
@@ -63,15 +75,33 @@ export default function ReportPage() {
     const sData = (await sRes.json()) as { scans: Scan[] };
     setProperty(next);
     setScans(sData.scans ?? []);
+    rememberHouse(propertyId);
+    const walks = next.walks ?? [];
+    const latest = walksChronological(walks).at(-1);
+    setWalkFilter((cur) => {
+      if (cur === "all") return "all";
+      if (walks.some((w) => w.id === cur)) return cur;
+      return latest?.id ?? "all";
+    });
+    setStatus("ready");
   }, [propertyId]);
 
   useEffect(() => {
-    void load().catch(() => setError("Could not load report"));
+    setStatus("loading");
+    void load().catch(() => {
+      setError("Could not load report");
+      setStatus("missing");
+    });
   }, [load]);
 
+  const tenureScans = useMemo(
+    () => scansForWalk(scans, walkFilter === "all" ? "all" : walkFilter),
+    [scans, walkFilter],
+  );
+
   const visibleScans = useMemo(
-    () => (modelOnly ? scans.filter(isModelScan) : scans),
-    [scans, modelOnly],
+    () => (modelOnly ? tenureScans.filter(isModelScan) : tenureScans),
+    [tenureScans, modelOnly],
   );
 
   const groups = useMemo(() => {
@@ -125,16 +155,20 @@ export default function ReportPage() {
     window.print();
   }
 
-  if (!property && !error) {
+  if (status === "loading") {
     return <main className="grid min-h-dvh place-items-center text-slate-500">Loading report…</main>;
+  }
+
+  if (status === "missing" || !property) {
+    return <HouseSelect intent="report" />;
   }
 
   const photoCount = visibleScans.length;
 
   return (
-    <main className="mx-auto min-h-dvh max-w-md px-5 pb-16 pt-8 text-slate-900">
+    <main className="mx-auto min-h-dvh max-w-md px-5 pb-28 pt-8 text-slate-900">
       <div className="flex items-center justify-between gap-3">
-        <BackLink href="/">Houses</BackLink>
+        <BackLink href="/report">Change house</BackLink>
         <div className="flex flex-wrap items-center justify-end gap-2 print:hidden">
           <IdentityChip />
           <button
@@ -153,9 +187,36 @@ export default function ReportPage() {
           {property ? kindLabel(property.kind) : ""}
           {property?.unit ? ` · Apt ${property.unit}` : ""}
           {property ? " · " : ""}
-          {photoCount} {photoCount === 1 ? "move-in photo" : "move-in photos"}
+          {photoCount} {photoCount === 1 ? "photo" : "photos"}
+          {walkFilter !== "all" ? ` · ${walkKindLabel((property?.walks ?? []).find((w) => w.id === walkFilter)?.kind ?? "move_in")}` : " · full tenure"}
         </p>
       </div>
+
+      {(property?.walks?.length ?? 0) > 0 && (
+        <div className="mt-4 flex gap-2 overflow-x-auto print:hidden">
+          <button
+            type="button"
+            onClick={() => setWalkFilter("all")}
+            className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-medium ${
+              walkFilter === "all" ? "bg-emerald-600 text-white" : "border border-slate-200 bg-white text-slate-600"
+            }`}
+          >
+            All records
+          </button>
+          {walksChronological(property?.walks ?? []).map((w) => (
+            <button
+              key={w.id}
+              type="button"
+              onClick={() => setWalkFilter(w.id)}
+              className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-medium ${
+                walkFilter === w.id ? "bg-emerald-600 text-white" : "border border-slate-200 bg-white text-slate-600"
+              }`}
+            >
+              {walkKindLabel(w.kind)}
+            </button>
+          ))}
+        </div>
+      )}
 
       <Link
         href={`/scan?propertyId=${propertyId}`}
@@ -357,7 +418,7 @@ export default function ReportPage() {
         })}
       </div>
 
-      {property && <EvidencePrint property={property} scans={scans} role={role} />}
+      {property && <EvidencePrint property={property} scans={tenureScans} role={role} />}
     </main>
   );
 }

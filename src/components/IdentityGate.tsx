@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { IdentityContext } from "@/lib/IdentityContext";
+import { BottomNav } from "@/components/BottomNav";
 import { clearIdentity, identityIdFromName, loadIdentity, ROLE_BLURB, ROLE_LABEL, ROLES, saveIdentity } from "@/lib/identity";
 import type { Identity, Role } from "@/lib/types";
 
@@ -165,6 +166,7 @@ export function IdentityGate({ children }: { children: React.ReactNode }) {
         }}
       >
         {children}
+        <BottomNav />
       </IdentityContext.Provider>
     );
   }
@@ -226,6 +228,7 @@ export function IdentityGate({ children }: { children: React.ReactNode }) {
       }}
     >
       {children}
+      <BottomNav />
     </IdentityContext.Provider>
   );
 }

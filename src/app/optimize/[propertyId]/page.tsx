@@ -4,8 +4,10 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { BackLink } from "@/components/BackLink";
+import { HouseSelect } from "@/components/HouseSelect";
 import { IdentityChip } from "@/components/IdentityChip";
 import { OptimizeChart } from "@/components/OptimizeChart";
+import { rememberHouse } from "@/lib/activeHouse";
 import { roomSurfaceLabel } from "@/lib/labels";
 import { coverageFromScans, nextBestSurface } from "@/lib/nextbest";
 import { cumulativeDefects, guidedOrder, guidedVsNaiveSummary, naiveOrder, totalDistinctDefects } from "@/lib/optimize";
@@ -17,20 +19,27 @@ export default function OptimizePage() {
   const [property, setProperty] = useState<Property | null>(null);
   const [scans, setScans] = useState<Scan[]>([]);
   const [showNaive, setShowNaive] = useState(true);
-  const [loaded, setLoaded] = useState(false);
+  const [status, setStatus] = useState<"loading" | "ready" | "missing">("loading");
 
   useEffect(() => {
+    setStatus("loading");
     void (async () => {
       const [pRes, sRes] = await Promise.all([
-        fetch("/api/properties", { cache: "no-store" }),
+        fetch(`/api/properties/${propertyId}`, { cache: "no-store" }),
         fetch(`/api/scans?propertyId=${propertyId}`, { cache: "no-store" }),
       ]);
-      const pData = (await pRes.json()) as { properties: Property[] };
+      const pData = (await pRes.json()) as { property?: Property };
       const sData = (await sRes.json()) as { scans: Scan[] };
-      setProperty(pData.properties.find((p) => p.id === propertyId) ?? null);
+      if (!pRes.ok || !pData.property) {
+        setProperty(null);
+        setStatus("missing");
+        return;
+      }
+      setProperty(pData.property);
       setScans(sData.scans ?? []);
-      setLoaded(true);
-    })().catch(() => setLoaded(true));
+      rememberHouse(propertyId);
+      setStatus("ready");
+    })().catch(() => setStatus("missing"));
   }, [propertyId]);
 
   const { guidedCum, naiveCum, total, summary, nextShot } = useMemo(() => {
@@ -44,25 +53,33 @@ export default function OptimizePage() {
     };
   }, [scans, property]);
 
-  if (!loaded) {
+  if (status === "loading") {
     return <main className="grid min-h-dvh place-items-center text-sm text-slate-500">Loading…</main>;
   }
 
+  if (status === "missing" || !property) {
+    return <HouseSelect intent="proof" />;
+  }
+
   return (
-    <main className="mx-auto min-h-dvh max-w-md px-5 pb-16 pt-8 text-slate-900">
+    <main className="mx-auto min-h-dvh max-w-md px-5 pb-28 pt-8 text-slate-900">
       <div className="flex items-center justify-between gap-3">
-        <BackLink href={`/report/${propertyId}`}>Report</BackLink>
+        <BackLink href="/optimize">Change house</BackLink>
         <IdentityChip />
       </div>
 
-      <h1 className="mt-4 text-3xl font-semibold tracking-tight">Guided vs. naive</h1>
+      <p className="mt-4 text-[11px] font-medium tracking-[0.12em] text-emerald-700">Proof</p>
+      <h1 className="mt-2 text-3xl font-semibold tracking-tight">Guided vs. naive</h1>
       <p className="mt-1 text-sm text-slate-500">
-        {property?.label ?? "This property"} · {scans.length} photos
+        {property.label} · {scans.length} photos. Same photos, two orders: the planner versus wandering.
       </p>
+      <Link href={`/report/${propertyId}`} className="mt-2 inline-block text-xs text-emerald-800 underline underline-offset-4">
+        Open this house’s report
+      </Link>
 
       {scans.length < 3 || total === 0 ? (
         <div className="mt-10 rounded-2xl border border-dashed border-slate-300 p-6 text-center">
-          <p className="text-sm text-slate-500">Not enough scans yet.</p>
+          <p className="text-sm text-slate-500">Not enough scans yet to prove the claim.</p>
           <p className="mt-2 text-sm text-slate-800">Photograph the {nextShot} next.</p>
           <p className="mt-2 text-xs text-slate-500">
             Take a few photos across different surfaces — some with real findings — to compare guided vs. naive.

@@ -117,12 +117,16 @@ export function escalationSentence(escalation: Escalation) {
 export function civicCompactLine(context?: CityContext) {
   if (!context) return "County records not pulled yet";
   const bits: string[] = [];
-  if (context.leadPaintLikely) bits.push("Lead-paint era");
+  if (context.leadPaintLikely) bits.push(context.nearby?.used ? "Lead-paint era nearby" : "Lead-paint era");
   if (context.civic?.waterNearby) bits.push("water nearby");
   if (context.areaLead?.level === "elevated") bits.push("high lead nearby");
   else if (context.areaLead?.level === "watch") bits.push("watch lead nearby");
   if (!bits.length) {
-    return context.ok && context.matched ? "County file looks quiet" : "Gathering county records";
+    return context.ok && context.matched
+      ? "County file looks quiet"
+      : context.nearby?.used
+        ? "Block estimate from nearby houses"
+        : "Gathering county records";
   }
   return bits.join(" · ");
 }

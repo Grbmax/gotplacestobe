@@ -26,7 +26,11 @@ export function escalateDetections(
         from: "cosmetic paint failure",
         to: "high lead hazard priority",
         why: [
-          pre1978 ? `pre-1978 structure (${context?.yearBuilt ?? "year unknown"})` : null,
+          pre1978
+            ? context?.nearby?.used
+              ? `nearby houses on this block typically pre-1978 (~${context?.yearBuilt ?? "year unknown"}; estimate)`
+              : `pre-1978 structure (${context?.yearBuilt ?? "year unknown"})`
+            : null,
           highArea ? `elevated blood-lead rates in ZIP ${zip || "this tract"}` : null,
           leadLine ? "PWSA lead service line flag" : null,
           "peeling paint in the frame",
