@@ -22,8 +22,16 @@ export default function ScanPage() {
   const [resultDets, setResultDets] = useState<Detection[] | null>(null);
   const [resultScan, setResultScan] = useState<Scan | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [pastScans, setPastScans] = useState<Scan[]>([]);
+  const [ghostOn, setGhostOn] = useState(true);
 
   const scannableProperties = useMemo(() => (properties ?? []).filter((p) => !p.isSample), [properties]);
+
+  // Latest past scan of the currently selected room+surface, newest-first from the API already.
+  const ghostUrl = useMemo(() => {
+    const match = pastScans.find((s) => s.room === room && s.surface === surface);
+    return match?.imageUrl ?? null;
+  }, [pastScans, room, surface]);
 
   useEffect(() => {
     void (async () => {
@@ -42,15 +50,22 @@ export default function ScanPage() {
     void (async () => {
       const res = await fetch(`/api/scans?propertyId=${propertyId}`, { cache: "no-store" });
       const data = (await res.json()) as { scans: Scan[] };
+      setPastScans(data.scans ?? []);
       const map = new Map<string, SurfaceCoverage>();
+      // /api/scans returns newest-first, so the first hit per key is the latest scan.
       for (const s of data.scans) {
         const key = `${s.room}::${s.surface}`;
         const cur = map.get(key);
         if (!cur) {
-          map.set(key, { room: s.room, surface: s.surface, lastScannedAt: s.capturedAt, scanCount: 1 });
+          map.set(key, {
+            room: s.room,
+            surface: s.surface,
+            lastScannedAt: s.capturedAt,
+            scanCount: 1,
+            lastDetections: s.detections,
+          });
         } else {
           cur.scanCount += 1;
-          if (s.capturedAt > (cur.lastScannedAt ?? "")) cur.lastScannedAt = s.capturedAt;
         }
       }
       const house = properties.find((p) => p.id === propertyId);
@@ -142,6 +157,7 @@ export default function ScanPage() {
           frozenUrl={frozenUrl}
           resultDetections={resultDets}
           resultDetector={resultScan?.detector ?? null}
+          ghostUrl={ghostOn ? ghostUrl : null}
         />
       </div>
 
@@ -152,6 +168,15 @@ export default function ScanPage() {
           </Link>
           <div className="flex items-center gap-2">
             <IdentityChip />
+            {ghostUrl && (
+              <button
+                type="button"
+                onClick={() => setGhostOn((v) => !v)}
+                className={`rounded-full px-3 py-1.5 text-xs ${ghostOn ? "bg-emerald-400 text-black" : "bg-black/55 text-zinc-200"}`}
+              >
+                Ghost {ghostOn ? "on" : "off"}
+              </button>
+            )}
             {propertyId && (
               <Link
                 href={`/report/${propertyId}`}

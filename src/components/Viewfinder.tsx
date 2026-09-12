@@ -12,6 +12,8 @@ type Props = {
   resultDetections?: Detection[] | null;
   resultDetector?: "gemini" | "mock" | null;
   frozenUrl?: string | null;
+  /** Previous scan of this surface, shown faint over the live feed so the shot lines up. */
+  ghostUrl?: string | null;
 };
 
 export function Viewfinder({
@@ -20,6 +22,7 @@ export function Viewfinder({
   resultDetections,
   resultDetector,
   frozenUrl,
+  ghostUrl,
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -231,6 +234,16 @@ export function Viewfinder({
           playsInline
           muted
           autoPlay
+        />
+      )}
+
+      {/* Line the shot up with last time — never blocks the shutter if it doesn't fit perfectly. */}
+      {ghostUrl && !frozenUrl && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={ghostUrl}
+          alt=""
+          className="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-30 mix-blend-luminosity"
         />
       )}
 
