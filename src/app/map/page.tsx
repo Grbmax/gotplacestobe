@@ -8,9 +8,11 @@ import { type AppTab, BottomNav } from "@/components/BottomNav";
 import { CampusMap } from "@/components/CampusMap";
 import { ProfilePanel } from "@/components/ProfilePanel";
 import { QuickPost } from "@/components/QuickPost";
+import { ReciprocityChain } from "@/components/ReciprocityChain";
 import { SwipeDeck } from "@/components/SwipeDeck";
 import {
   apiBailQuest,
+  apiChain,
   apiClaimQuest,
   apiConfirmQuest,
   apiCreateQuest,
@@ -18,6 +20,7 @@ import {
   apiMarkDone,
   apiMe,
 } from "@/lib/api";
+import type { ChainResult } from "@/lib/chain";
 import {
   CLAIM_MS,
   MOCK_QUESTS,
@@ -41,6 +44,21 @@ const seedTx: Transaction[] = [
   { id: "t2", label: "Posted · HDMI swap", amount: -20, when: "Today 00:48" },
   { id: "t3", label: "Confirmed · hold table", amount: 25, when: "Thu 23:10" },
 ];
+
+const GPS_KEY = "quest.gps";
+
+function loadSavedGps(): LatLng | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem(GPS_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as LatLng;
+    if (typeof parsed.lat === "number" && typeof parsed.lng === "number") return parsed;
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
 
 function normalizeZone(zone: string): ZoneId {
   return ZONE_IDS.includes(zone as ZoneId) ? (zone as ZoneId) : "plaza";
@@ -71,6 +89,7 @@ export default function MapPage() {
   const [postBusy, setPostBusy] = useState(false);
   const [postError, setPostError] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
+  const [chain, setChain] = useState<ChainResult | null>(null);
   const autoReleaseRef = useRef<string | null>(null);
   const anchored = useRef(false);
   const searchAbort = useRef<AbortController | null>(null);
@@ -85,6 +104,17 @@ export default function MapPage() {
     existing.zone = normalizeZone(existing.zone);
     saveSession(existing);
 
+    const savedGps = loadSavedGps();
+    if (!savedGps) {
+      router.replace("/join");
+      return;
+    }
+    setYouPos(savedGps);
+    setLive(true);
+    const world = anchorWorld(savedGps);
+    setQuests(world.quests);
+    anchored.current = true;
+
     let cancelled = false;
     (async () => {
       try {
@@ -93,8 +123,6 @@ export default function MapPage() {
         me.user.zone = normalizeZone(me.user.zone);
         saveSession(me.user);
         setSession(me.user);
-        setYouPos({ lat: zoneById(me.user.zone).lat, lng: zoneById(me.user.zone).lng });
-        setQuests(MOCK_QUESTS);
         if (me.transactions.length) setTx(me.transactions);
       } catch {
         try {
@@ -102,14 +130,8 @@ export default function MapPage() {
           if (cancelled) return;
           saveSession(created.user);
           setSession(created.user);
-          setYouPos({ lat: zoneById(created.user.zone).lat, lng: zoneById(created.user.zone).lng });
-          setQuests(MOCK_QUESTS);
         } catch {
-          if (!cancelled) {
-            setSession(existing);
-            setYouPos({ lat: zoneById(existing.zone).lat, lng: zoneById(existing.zone).lng });
-            setQuests(MOCK_QUESTS);
-          }
+          if (!cancelled) setSession(existing);
         }
       }
     })();
@@ -121,16 +143,17 @@ export default function MapPage() {
 
   useEffect(() => {
     if (!session) return;
-    setYouPos((prev) => prev ?? { lat: zoneById(session.zone).lat, lng: zoneById(session.zone).lng });
 
     if (!navigator.geolocation) {
       setLive(false);
+      router.replace("/join");
       return;
     }
 
     const watch = navigator.geolocation.watchPosition(
       (pos) => {
         const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        sessionStorage.setItem(GPS_KEY, JSON.stringify(coords));
         setYouPos(coords);
         setLive(true);
 
@@ -151,7 +174,10 @@ export default function MapPage() {
         });
       },
       () => {
-        setLive(false);
+        if (!loadSavedGps()) {
+          setLive(false);
+          router.replace("/join");
+        }
       },
       { enableHighAccuracy: true, maximumAge: 2000, timeout: 12_000 },
     );
@@ -172,7 +198,6 @@ export default function MapPage() {
     return favorsNearPath(ranked, route.path, 550);
   }, [ranked, route]);
   const current = feed[index] ?? null;
-  const next = feed[index + 1] ?? null;
   const myClaim = session
     ? quests.find(
         (q) =>
@@ -329,16 +354,14 @@ export default function MapPage() {
     }
   }
 
-  function skip() {
-    setIndex((i) => i + 1);
-  }
-
-  async function accept() {
-    if (!current || !session) return;
+  async function accept(id: string) {
+    if (!session) return;
+    const quest = quests.find((q) => q.id === id) ?? feed.find((q) => q.id === id);
+    if (!quest) return;
     const claimedAt = Date.now();
     setQuests((prev) =>
       prev.map((q) =>
-        q.id === current.id
+        q.id === id
           ? {
               ...q,
               status: "CLAIMED" as const,
@@ -352,7 +375,7 @@ export default function MapPage() {
     );
     setTab("active");
     try {
-      await apiClaimQuest(current.id, session.id);
+      await apiClaimQuest(id, session.id);
     } catch {
       /* optimistic board still updates */
     }
@@ -601,7 +624,7 @@ export default function MapPage() {
 
             {!live && (
               <p className="absolute inset-x-3 top-[7.6rem] z-20 rounded-full bg-ink/75 px-3 py-1.5 text-center text-[11px] text-paper/70">
-                Waiting for GPS — allow location to place your live pin
+                Refreshing GPS…
               </p>
             )}
 
@@ -613,9 +636,14 @@ export default function MapPage() {
 
             <div className="pointer-events-none absolute inset-x-0 bottom-16 z-20 bg-gradient-to-t from-[#151c12] via-[#151c12]/90 to-transparent px-3 pb-2 pt-16">
               <div className="pointer-events-auto">
-                <SwipeDeck quest={current} next={next} onSkip={skip} onAccept={accept} />
+                <SwipeDeck
+                  feed={feed}
+                  index={index}
+                  onIndexChange={setIndex}
+                  onAccept={accept}
+                />
                 <p className="mt-2 px-1 text-[11px] text-paper/45">
-                  {feed.length} favors · swipe · map follows
+                  {feed.length} favors · scroll · map follows
                 </p>
               </div>
             </div>
@@ -645,7 +673,14 @@ export default function MapPage() {
               />
             )}
             {tab === "you" && (
-              <ProfilePanel session={session} tx={tx} onClose={() => setTab("map")} />
+              <div className="flex h-full flex-col overflow-hidden">
+                <div className="shrink-0">
+                  <ReciprocityChain chain={chain} />
+                </div>
+                <div className="min-h-0 flex-1 overflow-hidden">
+                  <ProfilePanel session={session} tx={tx} onClose={() => setTab("map")} />
+                </div>
+              </div>
             )}
           </div>
         )}
@@ -664,6 +699,9 @@ export default function MapPage() {
                     if (me.transactions.length) setTx(me.transactions);
                   })
                   .catch(() => undefined);
+                void apiChain()
+                  .then((data) => setChain(data.chain))
+                  .catch(() => setChain(null));
               }
               setTab(nextTab);
             }}

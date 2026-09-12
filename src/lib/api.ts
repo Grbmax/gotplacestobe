@@ -1,4 +1,5 @@
 import type { Quest, Session, Transaction, Urgency, ZoneId } from "./types";
+import type { ChainResult } from "./chain";
 
 export async function apiCreateSession(name: string, zone: ZoneId) {
   const res = await fetch("/api/session", {
@@ -87,4 +88,10 @@ export async function apiMe(userId: string) {
   const res = await fetch(`/api/me?userId=${userId}`, { cache: "no-store" });
   if (!res.ok) throw new Error("me");
   return (await res.json()) as { user: Session; transactions: Transaction[] };
+}
+
+export async function apiChain() {
+  const res = await fetch("/api/chain", { cache: "no-store" });
+  if (!res.ok) throw new Error("chain");
+  return (await res.json()) as { chain: ChainResult | null };
 }

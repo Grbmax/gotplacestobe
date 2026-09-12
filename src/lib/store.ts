@@ -327,3 +327,27 @@ export async function getMe(userId: string) {
     .toArray();
   return { user: asUser(userDoc), transactions: txs.map(asTx) };
 }
+
+export async function getConfirmedEdges() {
+  const db = await getDb();
+  const docs = await db
+    .collection<QuestDoc>("quests")
+    .find({ status: "CONFIRMED" })
+    .sort({ updatedAt: 1 })
+    .toArray();
+
+  const edges = [];
+  for (const doc of docs) {
+    if (!doc.helperId || !doc.requesterId) continue;
+    edges.push({
+      from: doc.helperId,
+      fromName: doc.helperName ?? "Helper",
+      to: doc.requesterId,
+      toName: doc.requesterName,
+      title: doc.title,
+      karma: doc.baseKarma + doc.bonusKarma,
+      at: doc.updatedAt,
+    });
+  }
+  return edges;
+}
