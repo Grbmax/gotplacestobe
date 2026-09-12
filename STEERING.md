@@ -131,6 +131,7 @@ Every deviation from §1/§5 gets a line here, so drift is visible instead of di
 | 2026-09-12 | A teammate independently pushed `QUEST-ROADMAP.md`, a second competing plan doc, minutes after this file was first committed | Two people wrote "the plan" at once without coordinating — the exact drift this file exists to catch | steering doc audit |
 | 2026-09-12 | `QUEST-ROADMAP.md` merged into this file and retired; its neighborhood-pan, mock-board, and tier-label proposals folded into §4B | Team decision: one steering doc, not two | user + steering doc |
 | 2026-09-12 | Kept MongoDB in tonight's plan (§5) despite `QUEST-ROADMAP.md` recommending skip-tonight | Team decision, made consciously rather than by whichever doc someone had open | user |
+| 2026-09-12 | Added `mongodb` npm dependency for Atlas/local store swap (§5) | Required driver for `lib/db.ts` / `lib/store.ts` internals | agent |
 | | | | |
 
 ---
