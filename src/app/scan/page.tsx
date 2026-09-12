@@ -69,6 +69,8 @@ export default function ScanPage() {
     })().catch(() => setError("Could not load properties"));
   }, []);
 
+  // Re-guide on property change, AND every time a scan actually completes (see onCapture) —
+  // otherwise the prompt goes stale after the very first shot, which defeats the entire point.
   useEffect(() => {
     if (!propertyId) return;
     void (async () => {
@@ -197,7 +199,14 @@ export default function ScanPage() {
           </div>
         </div>
         <div className="pointer-events-auto">
-          <SurfacePrompt room={room} surface={surface} reason={reason} hint={alignmentHint} />
+          <SurfacePrompt
+            room={room}
+            surface={surface}
+            reason={reason}
+            hint={alignmentHint}
+            covered={coverageFromScans(pastScans).length}
+            total={KNOWN_SURFACES.length}
+          />
         </div>
       </div>
 
