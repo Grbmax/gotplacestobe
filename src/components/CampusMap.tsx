@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { LayerGroup, Map as LeafletMap, Marker } from "leaflet";
-import { CAMPUS_CENTER, ZONES, zoneById } from "@/lib/data";
+import { CAMPUS_BOUNDS, CAMPUS_CENTER, ZONES, zoneById } from "@/lib/data";
 import type { LatLng, ScoredQuest, ZoneId } from "@/lib/types";
 
 type Props = {
@@ -32,22 +32,54 @@ export function CampusMap({ you, youPos, quests, activeId, onSelect }: Props) {
       await import("leaflet/dist/leaflet.css");
       if (cancelled || !el || mapRef.current) return;
 
+      const bounds = L.latLngBounds(
+        [CAMPUS_BOUNDS.southWest.lat, CAMPUS_BOUNDS.southWest.lng],
+        [CAMPUS_BOUNDS.northEast.lat, CAMPUS_BOUNDS.northEast.lng],
+      );
+
       const map = L.map(el, {
         zoomControl: false,
-        minZoom: 15,
+        attributionControl: false,
+        minZoom: 16,
         maxZoom: 19,
-        maxBounds: L.latLngBounds([40.436, -79.955], [40.4505, -79.932]),
-        maxBoundsViscosity: 0.75,
-      }).setView([CAMPUS_CENTER.lat, CAMPUS_CENTER.lng], 16);
+        maxBounds: bounds,
+        maxBoundsViscosity: 1,
+        bounceAtZoomLimits: true,
+        worldCopyJump: false,
+        inertia: false,
+        zoomSnap: 0.25,
+        wheelPxPerZoomLevel: 120,
+      }).setView([CAMPUS_CENTER.lat, CAMPUS_CENTER.lng], 16.6);
 
-      L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-        attribution: "&copy; OSM &copy; CARTO",
-        subdomains: "abcd",
+      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: "&copy; OpenStreetMap",
         maxZoom: 19,
+        minZoom: 16,
+        bounds,
+        noWrap: true,
+        keepBuffer: 4,
+        className: "osm-base",
       }).addTo(map);
+
+      map.on("drag", () => {
+        map.panInsideBounds(bounds, { animate: false });
+      });
+      map.on("zoomend", () => {
+        map.panInsideBounds(bounds, { animate: false });
+      });
 
       for (const z of ZONES) {
         const mine = z.id === you;
+        L.circle([z.lat, z.lng], {
+          radius: mine ? 90 : 70,
+          color: mine ? "#d6ff4a" : "#7dffc3",
+          weight: mine ? 1.4 : 0.8,
+          opacity: mine ? 0.7 : 0.28,
+          fillColor: mine ? "#d6ff4a" : "#7dffc3",
+          fillOpacity: mine ? 0.12 : 0.06,
+          interactive: false,
+        }).addTo(map);
+
         L.marker([z.lat, z.lng], {
           interactive: false,
           icon: L.divIcon({
@@ -72,6 +104,7 @@ export function CampusMap({ you, youPos, quests, activeId, onSelect }: Props) {
 
       questLayerRef.current = L.layerGroup().addTo(map);
       mapRef.current = map;
+      requestAnimationFrame(() => map.invalidateSize());
       setReady(true);
     })();
 
@@ -86,14 +119,23 @@ export function CampusMap({ you, youPos, quests, activeId, onSelect }: Props) {
   }, [you]);
 
   useEffect(() => {
+    const map = mapRef.current;
+    const el = wrapRef.current;
+    if (!ready || !map || !el) return;
+    const ro = new ResizeObserver(() => map.invalidateSize({ animate: false }));
+    ro.observe(el);
+    map.invalidateSize({ animate: false });
+    return () => ro.disconnect();
+  }, [ready]);
+
+  useEffect(() => {
     if (!youPos) return;
     youMarkerRef.current?.setLatLng([youPos.lat, youPos.lng]);
   }, [youPos]);
 
   useEffect(() => {
-    const map = mapRef.current;
     const layer = questLayerRef.current;
-    if (!ready || !map || !layer) return;
+    if (!ready || !layer) return;
     let cancelled = false;
 
     (async () => {
@@ -101,7 +143,7 @@ export function CampusMap({ you, youPos, quests, activeId, onSelect }: Props) {
       if (cancelled || !questLayerRef.current) return;
       questLayerRef.current.clearLayers();
 
-      for (const q of quests.slice(0, 3)) {
+      for (const q of quests) {
         const z = zoneById(q.zone);
         const active = q.id === activeId;
         L.marker([z.lat, z.lng], {
@@ -129,7 +171,8 @@ export function CampusMap({ you, youPos, quests, activeId, onSelect }: Props) {
     const quest = quests.find((q) => q.id === activeId);
     if (!quest) return;
     const z = zoneById(quest.zone);
-    map.flyTo([z.lat, z.lng], Math.max(map.getZoom(), 17), { duration: 0.45 });
+    const target = map.getZoom() < 17 ? 17.2 : map.getZoom();
+    map.flyTo([z.lat, z.lng], target, { duration: 0.4, easeLinearity: 0.25 });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- pan only when the active ping changes
   }, [ready, activeId]);
 

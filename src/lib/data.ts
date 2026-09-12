@@ -145,3 +145,11 @@ export const KARMA_COST: Record<Urgency, { base: number; bonus: number }> = {
 };
 
 export const CAMPUS_CENTER = { lat: 40.4432, lng: -79.9436 };
+
+/** Tight CMU envelope — map never pans past this. */
+export const CAMPUS_BOUNDS = {
+  southWest: { lat: 40.4388, lng: -79.9518 },
+  northEast: { lat: 40.4478, lng: -79.9368 },
+} as const;
+
+export const CLAIM_MS = 5 * 60 * 1000;

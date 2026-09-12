@@ -1,4 +1,4 @@
-import { KARMA_COST, MOCK_QUESTS } from "./data";
+import { CLAIM_MS, KARMA_COST, MOCK_QUESTS } from "./data";
 import type { Quest, Session, Transaction, Urgency, ZoneId } from "./types";
 
 const quests: Quest[] = structuredClone(MOCK_QUESTS);
@@ -31,7 +31,23 @@ export function getUser(id: string) {
   return users.get(id) ?? null;
 }
 
+function expireStaleClaims() {
+  const now = stamp();
+  for (const quest of quests) {
+    if (quest.status !== "CLAIMED" || !quest.claimedAt) continue;
+    if (now - quest.claimedAt < CLAIM_MS) continue;
+    const helper = quest.helperId ? users.get(quest.helperId) : undefined;
+    if (helper) helper.bailed += 1;
+    quest.status = "OPEN";
+    quest.helperId = undefined;
+    quest.helperName = undefined;
+    quest.claimedAt = undefined;
+    quest.updatedAt = now;
+  }
+}
+
 export function listQuests(since?: number) {
+  expireStaleClaims();
   const filtered = since ? quests.filter((q) => q.updatedAt > since) : quests;
   return { quests: filtered, serverTime: stamp() };
 }
@@ -87,6 +103,39 @@ export function claimQuest(id: string, userId: string) {
   quest.status = "CLAIMED";
   quest.helperId = user.id;
   quest.helperName = user.name;
+  quest.claimedAt = stamp();
+  quest.updatedAt = quest.claimedAt;
+  return { quest, user };
+}
+
+export function bailQuest(id: string, userId: string) {
+  expireStaleClaims();
+  const user = users.get(userId);
+  const quest = quests.find((q) => q.id === id);
+  if (!user || !quest) return { error: "Not found" as const };
+  if (quest.status !== "CLAIMED" || quest.helperId !== user.id) {
+    return { error: "Not your claim" as const };
+  }
+
+  user.bailed += 1;
+  quest.status = "OPEN";
+  quest.helperId = undefined;
+  quest.helperName = undefined;
+  quest.claimedAt = undefined;
+  quest.updatedAt = stamp();
+  return { quest, user };
+}
+
+export function markDone(id: string, userId: string) {
+  expireStaleClaims();
+  const user = users.get(userId);
+  const quest = quests.find((q) => q.id === id);
+  if (!user || !quest) return { error: "Not found" as const };
+  if (quest.status !== "CLAIMED" || quest.helperId !== user.id) {
+    return { error: "Not your claim" as const };
+  }
+
+  quest.status = "PENDING";
   quest.updatedAt = stamp();
   return { quest, user };
 }

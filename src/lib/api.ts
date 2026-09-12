@@ -45,6 +45,28 @@ export async function apiClaimQuest(id: string, userId: string) {
   return data;
 }
 
+export async function apiBailQuest(id: string, userId: string) {
+  const res = await fetch(`/api/quests/${id}/bail`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ userId }),
+  });
+  const data = (await res.json()) as { quest?: Quest; user?: Session; error?: string };
+  if (!res.ok || !data.quest) throw new Error(data.error ?? "bail");
+  return data;
+}
+
+export async function apiMarkDone(id: string, userId: string) {
+  const res = await fetch(`/api/quests/${id}/done`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ userId }),
+  });
+  const data = (await res.json()) as { quest?: Quest; error?: string };
+  if (!res.ok || !data.quest) throw new Error(data.error ?? "done");
+  return data;
+}
+
 export async function apiMe(userId: string) {
   const res = await fetch(`/api/me?userId=${userId}`, { cache: "no-store" });
   if (!res.ok) throw new Error("me");

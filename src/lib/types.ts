@@ -27,6 +27,7 @@ export type Quest = {
   status: QuestStatus;
   createdAt: string;
   updatedAt: number;
+  claimedAt?: number;
 };
 
 export type ScoredQuest = Quest & {
