@@ -125,7 +125,7 @@ export default function HomePage() {
     <main className="mx-auto min-h-dvh max-w-md px-5 pb-16 pt-8 text-slate-900">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[11px] uppercase tracking-[0.28em] text-emerald-700">SCAN</p>
+          <p className="text-[11px] font-medium tracking-[0.12em] text-emerald-700">CribCheck</p>
           <h1 className="mt-2 text-4xl font-semibold tracking-tight">Move-in check</h1>
         </div>
         <IdentityChip className="mt-1 shrink-0" />

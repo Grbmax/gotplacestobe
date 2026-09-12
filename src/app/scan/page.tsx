@@ -139,7 +139,7 @@ export default function ScanPage() {
     return (
       <main className="grid h-dvh place-items-center bg-black px-6 text-center text-white">
         <div>
-          <p className="text-[11px] uppercase tracking-[0.28em] text-emerald-400">SCAN</p>
+          <p className="text-[11px] font-medium tracking-[0.12em] text-emerald-400">CribCheck</p>
           <h1 className="mt-2 text-2xl font-semibold">Add a property first</h1>
           <p className="mx-auto mt-2 max-w-xs text-sm text-zinc-400">
             The one showing on the home screen is sample data — create your own before scanning, so your real

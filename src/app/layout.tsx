@@ -3,7 +3,7 @@ import { IdentityGate } from "@/components/IdentityGate";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "SCAN",
+  title: "CribCheck",
   description:
     "Move-in damage assessment: photograph a rental, flag mold and damage, and pull Allegheny County housing inspection records.",
 };
