@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { BrandLockup } from "@/components/BrandLockup";
 import { IdentityContext } from "@/lib/IdentityContext";
 import { clearIdentity, identityIdFromName, loadIdentity, ROLE_BLURB, ROLE_LABEL, ROLES, saveIdentity } from "@/lib/identity";
 import type { Identity, Role } from "@/lib/types";
@@ -33,8 +34,8 @@ function RolePicker({
   return (
     <div className="grid min-h-dvh place-items-center bg-[var(--bg)] px-5 py-10 text-[var(--fg)]">
       <div className="w-full max-w-sm">
-        <p className="text-[11px] font-medium tracking-[0.12em] text-emerald-700">CribCheck</p>
-        <h1 className="mt-2 text-3xl font-semibold tracking-tight">{title}</h1>
+        <BrandLockup size="md" />
+        <h1 className="mt-4 text-3xl font-semibold tracking-tight">{title}</h1>
         <p className="mt-2 text-sm text-slate-500">{subtitle}</p>
 
         {nameField && (
@@ -174,8 +175,8 @@ export function IdentityGate({ children }: { children: React.ReactNode }) {
     return (
       <div className="grid min-h-dvh place-items-center bg-[var(--bg)] px-5 text-center text-[var(--fg)]">
         <div>
-          <p className="text-[11px] font-medium tracking-[0.12em] text-emerald-700">CribCheck</p>
-          <h1 className="mt-2 text-3xl font-semibold tracking-tight">Sign in to continue</h1>
+          <BrandLockup size="md" align="center" />
+          <h1 className="mt-4 text-3xl font-semibold tracking-tight">Sign in to continue</h1>
           <p className="mx-auto mt-2 max-w-xs text-sm text-slate-500">
             One account, one role — renter, landlord, or inspector — so the app only shows you what&apos;s yours.
           </p>

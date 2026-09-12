@@ -106,7 +106,7 @@ export function dashboardTiles(context: CityContext | undefined, scans: Scan[]):
     body: around?.summary ?? "PIN / ZIP has not been joined to ACHD blood-lead rates yet.",
     read:
       around?.level === "elevated" || around?.level === "watch"
-        ? "This is a neighborhood health signal among children who were tested — not a blood test of this household or the people next door. Combined with peeling paint in an older house, CribCheck treats paint failure as a high lead-hazard priority."
+        ? "This is a neighborhood health signal among children who were tested — not a blood test of this household or the people next door. Combined with peeling paint in an older house, cribCheck treats paint failure as a high lead-hazard priority."
         : "Published rates here are lower or too thin to publish. ACHD censors small counts. Still use lead-safe cleaning in older homes.",
     notes: [
       around?.zipCode && around.zipPercent != null

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { BrandLockup } from "@/components/BrandLockup";
 import { CityContextCard } from "@/components/CityContextCard";
 import { IdentityChip } from "@/components/IdentityChip";
 import { useIdentity } from "@/lib/IdentityContext";
@@ -125,7 +126,7 @@ export default function HomePage() {
     <main className="mx-auto min-h-dvh max-w-md px-5 pb-16 pt-8 text-slate-900">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[11px] font-medium tracking-[0.12em] text-emerald-700">CribCheck</p>
+          <BrandLockup />
           <h1 className="mt-2 text-4xl font-semibold tracking-tight">Move-in check</h1>
         </div>
         <IdentityChip className="mt-1 shrink-0" />

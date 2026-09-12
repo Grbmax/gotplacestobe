@@ -29,7 +29,7 @@ export async function getDb(): Promise<Db> {
   return client.db("scan");
 }
 
-/** Isolated CribCheck DB so inspect collections never collide with Quest. */
+/** Isolated cribCheck DB so inspect collections never collide with Quest. */
 export async function getScanDb(): Promise<Db> {
   const client = await getClientPromise();
   return client.db("scan");
