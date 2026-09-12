@@ -1,8 +1,10 @@
 import { persistImage } from "./blob";
 import { hasMongo, getDb } from "./db";
 import { runDetect } from "./detect";
+import { escalateDetections } from "./escalate";
 import { totalAffectedRatio } from "./mockMath";
-import type { Property, Review, Scan, SurfaceCoverage } from "./types";
+import { displayAddress, lookupCityContext, placeKeyFromAddress } from "./pgh";
+import type { CityContext, Property, Review, Scan, SurfaceCoverage } from "./types";
 
 type PropertyDoc = Omit<Property, "id"> & { _id: string };
 type ScanDoc = Omit<Scan, "id"> & { _id: string };
@@ -27,6 +29,7 @@ function sampleSeed(): { property: Property; scans: Scan[] } {
     label: "5614 Beacon St",
     kind: "lease",
     createdAt: weeksAgo(6),
+    placeKey: placeKeyFromAddress("5614 Beacon St"),
   };
   const baseDetsEarly = [
     {
@@ -98,6 +101,7 @@ async function ensureSeed() {
       label: property.label,
       kind: property.kind,
       createdAt: property.createdAt,
+      placeKey: property.placeKey,
     });
     await db.collection<ScanDoc>("scans").insertMany(
       scans.map((s) => {
@@ -115,7 +119,16 @@ async function ensureSeed() {
 }
 
 function asProperty(doc: PropertyDoc): Property {
-  return { id: doc._id, label: doc.label, kind: doc.kind, createdAt: doc.createdAt };
+  const label = doc.label;
+  return {
+    id: doc._id,
+    label,
+    kind: doc.kind,
+    createdAt: doc.createdAt,
+    unit: doc.unit,
+    placeKey: doc.placeKey || placeKeyFromAddress(label),
+    cityContext: doc.cityContext,
+  };
 }
 
 function asScan(doc: ScanDoc): Scan {
@@ -137,23 +150,109 @@ function asScan(doc: ScanDoc): Scan {
 
 export async function listProperties(): Promise<Property[]> {
   await ensureSeed();
+  await consolidateDuplicateHouses();
   if (!hasMongo()) return [...mem.properties].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const db = await getDb();
   const docs = await db.collection<PropertyDoc>("properties").find({}).sort({ createdAt: -1 }).toArray();
   return docs.map(asProperty);
 }
 
-export async function createProperty(input: { label: string; kind: Property["kind"] }): Promise<Property> {
+function keyOf(property: Property) {
+  return property.placeKey || placeKeyFromAddress(property.label);
+}
+
+async function reassignScans(fromId: string, toId: string) {
+  if (fromId === toId) return;
+  if (!hasMongo()) {
+    for (const s of mem.scans) {
+      if (s.propertyId === fromId) s.propertyId = toId;
+    }
+    return;
+  }
+  const db = await getDb();
+  await db.collection("scans").updateMany({ propertyId: fromId }, { $set: { propertyId: toId } });
+}
+
+async function deletePropertyRecord(id: string) {
+  if (!hasMongo()) {
+    mem.properties = mem.properties.filter((p) => p.id !== id);
+    return;
+  }
+  const db = await getDb();
+  await db.collection<PropertyDoc>("properties").deleteOne({ _id: id });
+}
+
+async function consolidateDuplicateHouses() {
+  const props = !hasMongo()
+    ? [...mem.properties]
+    : (await (await getDb()).collection<PropertyDoc>("properties").find({}).toArray()).map(asProperty);
+  const groups = new Map<string, Property[]>();
+  for (const p of props) {
+    const key = keyOf(p);
+    if (!key.split("|")[0]) continue;
+    const list = groups.get(key) ?? [];
+    list.push(p);
+    groups.set(key, list);
+  }
+  for (const [placeKey, group] of groups) {
+    if (group.length < 2) {
+      const only = group[0];
+      if (only && !only.placeKey) {
+        only.placeKey = placeKey;
+        if (!hasMongo()) {
+          const i = mem.properties.findIndex((p) => p.id === only.id);
+          if (i >= 0) mem.properties[i] = only;
+        } else {
+          const db = await getDb();
+          await db.collection<PropertyDoc>("properties").updateOne({ _id: only.id }, { $set: { placeKey } });
+        }
+      }
+      continue;
+    }
+    const withCounts = await Promise.all(
+      group.map(async (p) => ({ p, n: (await listScans({ propertyId: p.id })).length })),
+    );
+    withCounts.sort((a, b) => b.n - a.n || a.p.createdAt.localeCompare(b.p.createdAt));
+    const keep = withCounts[0]!.p;
+    keep.placeKey = placeKey;
+    for (const extra of withCounts.slice(1)) {
+      await reassignScans(extra.p.id, keep.id);
+      await deletePropertyRecord(extra.p.id);
+    }
+    if (!hasMongo()) {
+      const i = mem.properties.findIndex((p) => p.id === keep.id);
+      if (i >= 0) mem.properties[i] = { ...keep, placeKey };
+    } else {
+      const db = await getDb();
+      await db.collection<PropertyDoc>("properties").updateOne({ _id: keep.id }, { $set: { placeKey } });
+    }
+  }
+}
+
+export async function createProperty(input: {
+  label: string;
+  kind: Property["kind"];
+  unit?: string;
+}): Promise<{ property: Property; reused: boolean }> {
   await ensureSeed();
+  const raw = [input.label.trim(), input.unit?.trim() ? `Apt ${input.unit.trim()}` : ""].filter(Boolean).join(" ");
+  const placeKey = placeKeyFromAddress(raw);
+  const existing = (await listProperties()).find((p) => keyOf(p) === placeKey);
+  if (existing) return { property: existing, reused: true };
+
+  const cityContext = await lookupCityContext(raw);
   const property: Property = {
     id: id("prop"),
-    label: input.label.trim() || "Untitled property",
+    label: displayAddress(raw),
     kind: input.kind,
     createdAt: new Date().toISOString(),
+    unit: input.unit?.trim() || undefined,
+    placeKey,
+    cityContext,
   };
   if (!hasMongo()) {
     mem.properties.unshift(property);
-    return property;
+    return { property, reused: false };
   }
   const db = await getDb();
   await db.collection<PropertyDoc>("properties").insertOne({
@@ -161,8 +260,34 @@ export async function createProperty(input: { label: string; kind: Property["kin
     label: property.label,
     kind: property.kind,
     createdAt: property.createdAt,
+    unit: property.unit,
+    placeKey: property.placeKey,
+    cityContext: property.cityContext,
   });
-  return property;
+  return { property, reused: false };
+}
+
+export async function getProperty(propertyId: string): Promise<Property | null> {
+  await ensureSeed();
+  if (!hasMongo()) return mem.properties.find((p) => p.id === propertyId) ?? null;
+  const db = await getDb();
+  const doc = await db.collection<PropertyDoc>("properties").findOne({ _id: propertyId });
+  return doc ? asProperty(doc) : null;
+}
+
+export async function refreshPropertyCity(propertyId: string): Promise<Property | null> {
+  const existing = await getProperty(propertyId);
+  if (!existing) return null;
+  const cityContext = await lookupCityContext(existing.label);
+  existing.cityContext = cityContext;
+  if (!hasMongo()) {
+    const i = mem.properties.findIndex((p) => p.id === propertyId);
+    if (i >= 0) mem.properties[i] = existing;
+    return existing;
+  }
+  const db = await getDb();
+  await db.collection<PropertyDoc>("properties").updateOne({ _id: propertyId }, { $set: { cityContext } });
+  return existing;
 }
 
 export async function listScans(filter: {
@@ -206,6 +331,12 @@ export async function createScan(input: {
 }): Promise<Scan> {
   await ensureSeed();
   const detected = await runDetect(input.image);
+  const property = await getProperty(input.propertyId);
+  const civic = escalateDetections(detected.detections, property?.cityContext);
+  const detections = civic.detections;
+  const finding = civic.findingExtra
+    ? `${detected.finding} ${civic.findingExtra}`
+    : detected.finding;
   const imageUrl = await persistImage(input.image, id("img"));
   const scan: Scan = {
     id: id("scan"),
@@ -214,10 +345,11 @@ export async function createScan(input: {
     surface: input.surface.trim() || "surface",
     imageUrl,
     capturedAt: new Date().toISOString(),
-    detections: detected.detections,
-    totalAffectedRatio: totalAffectedRatio(detected.detections),
-    finding: detected.finding,
+    detections,
+    totalAffectedRatio: totalAffectedRatio(detections),
+    finding,
     detector: detected.detector,
+    escalations: civic.escalations.length ? civic.escalations : undefined,
   };
 
   if (!hasMongo()) {
@@ -228,6 +360,18 @@ export async function createScan(input: {
   const { id: scanId, ...rest } = scan;
   await db.collection<ScanDoc>("scans").insertOne({ _id: scanId, ...rest });
   return scan;
+}
+
+export async function deleteScan(id: string): Promise<boolean> {
+  await ensureSeed();
+  if (!hasMongo()) {
+    const before = mem.scans.length;
+    mem.scans = mem.scans.filter((s) => s.id !== id);
+    return mem.scans.length < before;
+  }
+  const db = await getDb();
+  const res = await db.collection<ScanDoc>("scans").deleteOne({ _id: id });
+  return res.deletedCount > 0;
 }
 
 export async function reviewScan(

@@ -3,7 +3,8 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "SCAN",
-  description: "Scan walls and surfaces for mold, seepage, cracks, and peeling paint.",
+  description:
+    "Move-in damage assessment: photograph a rental, flag mold and damage, and pull Allegheny County housing inspection records.",
 };
 
 export const viewport: Viewport = {

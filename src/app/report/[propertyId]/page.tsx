@@ -3,11 +3,12 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { HouseDashboard } from "@/components/HouseDashboard";
 import { CompareView } from "@/components/CompareView";
 import { DetectorBadge } from "@/components/DetectorBadge";
 import { ScanCard } from "@/components/ScanCard";
 import { Timeline } from "@/components/Timeline";
-import { surfaceTrend } from "@/lib/progression";
+import { civicAlong, surfaceTrend } from "@/lib/progression";
 import type { Property, Review, Scan } from "@/lib/types";
 
 type Group = {
@@ -27,12 +28,18 @@ export default function ReportPage() {
 
   const load = useCallback(async () => {
     const [pRes, sRes] = await Promise.all([
-      fetch("/api/properties", { cache: "no-store" }),
+      fetch(`/api/properties/${propertyId}`, { cache: "no-store" }),
       fetch(`/api/scans?propertyId=${propertyId}`, { cache: "no-store" }),
     ]);
-    const pData = (await pRes.json()) as { properties: Property[] };
+    const pData = (await pRes.json()) as { property?: Property };
+    let next = pData.property ?? null;
+    if (next && (!next.cityContext || !next.cityContext.areaLead || !next.cityContext.civic)) {
+      const refresh = await fetch(`/api/properties/${propertyId}`, { method: "POST" });
+      const rData = (await refresh.json()) as { property?: Property };
+      next = rData.property ?? next;
+    }
     const sData = (await sRes.json()) as { scans: Scan[] };
-    setProperty(pData.properties.find((p) => p.id === propertyId) ?? null);
+    setProperty(next);
     setScans(sData.scans ?? []);
   }, [propertyId]);
 
@@ -64,6 +71,15 @@ export default function ReportPage() {
     await load();
   }
 
+  async function removePhoto(scanId: string) {
+    const res = await fetch(`/api/scans/${scanId}`, { method: "DELETE" });
+    if (!res.ok) {
+      setError("Could not remove photo");
+      return;
+    }
+    await load();
+  }
+
   if (!property && !error) {
     return <main className="grid min-h-dvh place-items-center text-zinc-400">Loading report…</main>;
   }
@@ -74,13 +90,25 @@ export default function ReportPage() {
         <Link href="/" className="text-xs uppercase tracking-[0.2em] text-emerald-400">
           SCAN
         </Link>
-        <Link href="/scan" className="rounded-full bg-emerald-400 px-3 py-1.5 text-xs font-semibold text-black">
-          New scan
-        </Link>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            disabled
+            title="PDF waits until the walkthrough details are locked"
+            className="rounded-full border border-zinc-700 px-3 py-1.5 text-xs text-zinc-500"
+          >
+            PDF later
+          </button>
+          <Link href="/scan" className="rounded-full bg-emerald-400 px-3 py-1.5 text-xs font-semibold text-black">
+            Add photos
+          </Link>
+        </div>
       </div>
 
       <h1 className="mt-4 text-3xl font-semibold tracking-tight">{property?.label ?? "Unknown"}</h1>
-      <p className="mt-1 text-sm text-zinc-400">{property?.kind} · {scans.length} scans</p>
+      <p className="mt-1 text-sm text-zinc-400">{property?.kind} · {scans.length} move-in photos</p>
+
+      {property && <HouseDashboard context={property.cityContext} scans={scans} />}
 
       <div className="mt-4 flex items-center gap-2 text-xs text-zinc-400">
         <span>Review as</span>
@@ -97,7 +125,9 @@ export default function ReportPage() {
 
       {error && <p className="mt-3 text-sm text-rose-400">{error}</p>}
 
-      <div className="mt-8 space-y-10">
+      <p className="mt-8 text-[11px] uppercase tracking-[0.18em] text-zinc-500">Photos in this report</p>
+
+      <div className="mt-3 space-y-10">
         {groups.map((g) => {
           const trend = surfaceTrend(g.scans);
           const badge =
@@ -120,7 +150,10 @@ export default function ReportPage() {
               </div>
 
               <div className="mt-3">
-                <Timeline points={trend.points} />
+                <Timeline
+                  points={trend.points}
+                  civic={civicAlong(trend.points, property?.cityContext?.civic?.monthly)}
+                />
               </div>
 
               {trend.first && trend.latest && trend.first.id !== trend.latest.id && (
@@ -135,7 +168,7 @@ export default function ReportPage() {
                   .sort((a, b) => b.capturedAt.localeCompare(a.capturedAt))
                   .map((scan) => (
                     <li key={scan.id} className="space-y-2">
-                      <ScanCard scan={scan} />
+                      <ScanCard scan={scan} onDelete={() => void removePhoto(scan.id)} />
                       {!scan.review ? (
                         <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2">
                           <p className="text-xs text-amber-200">Unreviewed — not a claim.</p>

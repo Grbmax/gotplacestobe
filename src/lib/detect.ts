@@ -58,7 +58,7 @@ class GeminiDetector implements Detector {
 
     const ai = new GoogleGenAI({ apiKey: key });
     const prompt = [
-      "You are inspecting a photo of a building interior surface for defects.",
+      "You are doing a rental move-in inspection photo of an interior or exterior surface.",
       "Look only for: mold, water_seepage, cracks, peeling_paint.",
       "Return JSON matching the schema. bbox is [x,y,w,h] normalized 0..1 relative to the image.",
       "areaRatio is the share of the frame occupied by that defect (0..1).",

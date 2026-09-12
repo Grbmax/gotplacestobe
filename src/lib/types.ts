@@ -5,6 +5,91 @@ export type Detection = {
   confidence: number;
   bbox: [number, number, number, number];
   areaRatio: number;
+  priority?: "routine" | "watch" | "high_lead_hazard" | "moisture_priority";
+  civicLabel?: string;
+};
+
+export type Escalation = {
+  cls: DefectClass;
+  from: string;
+  to: string;
+  why: string;
+};
+
+export type CivicPulse = {
+  waterNearby: boolean;
+  prompt?: string;
+  recent: { type: string; street: string; at: string; neighborhood?: string }[];
+  monthly: { month: string; count: number }[];
+};
+
+export type GrantMatch = {
+  eligible: boolean;
+  title: string;
+  body: string;
+  programs: string[];
+};
+
+export type HousingInspection = {
+  inspectionId: string;
+  serviceRequest?: string;
+  date?: string;
+  type?: string;
+  address: string;
+  city?: string;
+  requestType?: string;
+};
+
+export type HousingViolation = {
+  inspectionId: string;
+  serviceRequest?: string;
+  violation: string;
+  description?: string;
+  status?: string;
+  date?: string;
+};
+
+export type HousingServiceRequest = {
+  number: string;
+  date?: string;
+  address: string;
+  city?: string;
+  requestType?: string;
+  propertyType?: string;
+};
+
+export type EbllLevel = "low" | "watch" | "elevated" | "unknown";
+
+export type AreaLead = {
+  pin?: string;
+  zipCode?: string;
+  censusTract?: string;
+  zipPercent?: number | null;
+  zipNote?: string;
+  tractPercent?: number | null;
+  tractNote?: string;
+  level: EbllLevel;
+  summary: string;
+};
+
+export type CityContext = {
+  fetchedAt: string;
+  ok: boolean;
+  matched: boolean;
+  source: "wprdc";
+  parcelId?: string;
+  zipCode?: string;
+  yearBuilt?: number | null;
+  neighborhood?: string;
+  leadPaintLikely: boolean;
+  leadServiceLine?: boolean;
+  leadPaintNote: string;
+  areaLead?: AreaLead;
+  civic?: CivicPulse;
+  serviceRequests: HousingServiceRequest[];
+  inspections: HousingInspection[];
+  violations: HousingViolation[];
+  error?: string;
 };
 
 export type Property = {
@@ -12,6 +97,9 @@ export type Property = {
   label: string;
   kind: "lease" | "sublet" | "stay";
   createdAt: string;
+  unit?: string;
+  placeKey?: string;
+  cityContext?: CityContext;
 };
 
 export type Scan = {
@@ -27,6 +115,7 @@ export type Scan = {
   detector: "gemini" | "mock";
   review?: Review;
   isSample?: boolean;
+  escalations?: Escalation[];
 };
 
 export type Review = {

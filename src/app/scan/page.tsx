@@ -46,12 +46,13 @@ export default function ScanPage() {
           if (s.capturedAt > (cur.lastScannedAt ?? "")) cur.lastScannedAt = s.capturedAt;
         }
       }
-      const next = nextBestSurface([...map.values()]);
+      const house = properties.find((p) => p.id === propertyId);
+      const next = nextBestSurface([...map.values()], house?.cityContext?.civic);
       setRoom(next.room);
       setSurface(next.surface);
       setReason(next.reason);
     })().catch(() => undefined);
-  }, [propertyId]);
+  }, [propertyId, properties]);
 
   const rooms = useMemo(() => [...new Set(KNOWN_SURFACES.map((s) => s.room))], []);
   const surfaces = useMemo(
@@ -133,6 +134,11 @@ export default function ScanPage() {
                 <DetectorBadge detector={resultScan.detector} sample={resultScan.isSample} />
               </div>
               <p className="mt-2 text-sm leading-relaxed">{resultScan.finding}</p>
+              {resultScan.escalations?.length ? (
+                <p className="mt-2 text-xs text-rose-300">
+                  {resultScan.escalations.map((e) => `${e.from} → ${e.to}`).join(" · ")}
+                </p>
+              ) : null}
               <p className="mt-2 text-xs text-emerald-300">
                 {(resultScan.totalAffectedRatio * 100).toFixed(1)}% of frame affected
               </p>
