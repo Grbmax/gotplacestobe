@@ -69,7 +69,7 @@ export function dashboardTiles(context: CityContext | undefined, scans: Scan[]):
         : `Built ${year ?? "before 1978"} · lead likely`,
       body: context.leadPaintNote,
       read: blockEstimate
-        ? "County assessment did not join this exact house number, so CribCheck uses nearby parcels on the same street. That is a block estimate, not a PIN-level year. Treat peeling paint as a possible lead-paint issue until a certified year shows up."
+        ? "County assessment did not join this exact house number, so cribCheck uses nearby parcels on the same street. That is a block estimate, not a PIN-level year. Treat peeling paint as a possible lead-paint issue until a certified year shows up."
         : "HUD treats pre-1978 housing as likely to contain lead-based paint unless it has been certified otherwise. Peeling or chipped paint here is a health-housing issue, not cosmetic. Use wet-cleaning and licensed abatement if paint will be disturbed.",
       notes: [
         context.leadLine?.isLead
@@ -121,7 +121,7 @@ export function dashboardTiles(context: CityContext | undefined, scans: Scan[]):
     body: around?.summary ?? "PIN / ZIP has not been joined to ACHD blood-lead rates yet.",
     read:
       around?.level === "elevated" || around?.level === "watch"
-        ? "This is a neighborhood health signal among children who were tested — not a blood test of this household or the people next door. Combined with peeling paint in an older house, CribCheck treats paint failure as a high lead-hazard priority."
+        ? "This is a neighborhood health signal among children who were tested — not a blood test of this household or the people next door. Combined with peeling paint in an older house, cribCheck treats paint failure as a high lead-hazard priority."
         : "Published rates here are lower or too thin to publish. ACHD censors small counts. Still use lead-safe cleaning in older homes.",
     notes: [
       around?.zipCode && around.zipPercent != null

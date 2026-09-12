@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { AddHouseSheet } from "@/components/AddHouseSheet";
+import { BrandLockup } from "@/components/BrandLockup";
 import { lastHouse, rememberHouse } from "@/lib/activeHouse";
 import { useIdentity } from "@/lib/IdentityContext";
 import { kindLabel } from "@/lib/labels";
@@ -127,7 +128,8 @@ export function HouseSelect({
 
   return (
     <main className="mx-auto min-h-dvh max-w-md px-5 pb-28 pt-8 text-slate-900">
-      <p className="text-[11px] font-medium tracking-[0.12em] text-emerald-700">{copy.kicker}</p>
+      <BrandLockup />
+      <p className="mt-3 text-[11px] font-medium tracking-[0.12em] text-emerald-700">{copy.kicker}</p>
       <h1 className="mt-2 text-3xl font-semibold tracking-tight">{copy.title}</h1>
       <p className="mt-2 text-sm text-slate-500">{copy.blurb}</p>
 

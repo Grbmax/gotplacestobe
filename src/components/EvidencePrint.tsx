@@ -28,7 +28,11 @@ export function EvidencePrint({
   return (
     <div id="legal-evidence" className="print-root hidden print:block">
       <header className="border-b border-zinc-300 pb-3">
-        <p className="text-[10px] font-medium tracking-[0.12em] text-zinc-500">CribCheck · Legal evidence packet</p>
+        <p className="flex items-center gap-2 text-[10px] font-medium tracking-tight text-zinc-500">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/brand/mark-house-on-emerald.png" alt="" className="h-4 w-4 rounded-sm" />
+          cribCheck · Legal evidence packet
+        </p>
         <h1 className="mt-1 text-2xl font-semibold text-zinc-900">{property.label}</h1>
         <p className="mt-1 text-xs text-zinc-600">
           Exported {new Date(exportedAt).toLocaleString()} · {property.kind} · {tenureLabel}
@@ -107,7 +111,7 @@ export function EvidencePrint({
       <section className="mt-6 rounded border border-zinc-400 p-3">
         <h2 className="text-sm font-semibold text-zinc-900">Inspector signature block</h2>
         <p className="mt-2 text-xs text-zinc-700">
-          I certify that these photographs and overlays were captured in CribCheck and have not been
+          I certify that these photographs and overlays were captured in cribCheck and have not been
           altered except for on-image bounding boxes generated from the detector output.
         </p>
         <div className="mt-4 grid grid-cols-2 gap-6 text-xs text-zinc-800">
