@@ -48,6 +48,18 @@ export function clearIdentity() {
   }
 }
 
-export function newIdentityId() {
-  return `id_${crypto.randomUUID().slice(0, 8)}`;
+/**
+ * Deterministic from the name, not random — lite mode has no password or
+ * verification anyway, so there's nothing "more secure" about a random id,
+ * and a random one meant typing your name again in a new browser (or after
+ * clearing storage) orphaned every property you'd already created. Same
+ * name now always resumes the same identity.
+ */
+export function identityIdFromName(name: string): string {
+  const slug = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return `id_${slug || "guest"}`;
 }

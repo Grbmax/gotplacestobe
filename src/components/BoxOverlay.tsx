@@ -14,9 +14,11 @@ type Props = {
   width: number;
   height: number;
   className?: string;
+  /** false = live preview: plain, unlabeled, no class/confidence claims. Never look like a real result. */
+  labeled?: boolean;
 };
 
-export function BoxOverlay({ detections, width, height, className }: Props) {
+export function BoxOverlay({ detections, width, height, className, labeled = true }: Props) {
   return (
     <canvas
       className={className}
@@ -33,6 +35,19 @@ export function BoxOverlay({ detections, width, height, className }: Props) {
           const y = ny * canvas.height;
           const w = nw * canvas.width;
           const h = nh * canvas.height;
+
+          if (!labeled) {
+            // Aiming guide only — no class/confidence, since it's a client-side
+            // placeholder, not a real read, and a wrong-looking label undermines
+            // trust before the real detection even runs.
+            ctx.strokeStyle = "rgba(255,255,255,0.5)";
+            ctx.lineWidth = 1.5;
+            ctx.setLineDash([5, 5]);
+            ctx.strokeRect(x, y, w, h);
+            ctx.setLineDash([]);
+            continue;
+          }
+
           const color = COLORS[d.cls] ?? "#fff";
           ctx.strokeStyle = color;
           ctx.lineWidth = 2;

@@ -17,6 +17,7 @@ export async function POST(request: NextRequest) {
     room?: string;
     surface?: string;
     image?: string;
+    source?: "capture" | "upload";
     scannedBy?: string;
     scannedByName?: string;
   };
@@ -31,6 +32,7 @@ export async function POST(request: NextRequest) {
     room: body.room,
     surface: body.surface,
     image: body.image,
+    source: body.source === "upload" ? "upload" : "capture",
     scannedBy: body.scannedBy,
     scannedByName: body.scannedByName,
   });
