@@ -1,0 +1,12 @@
+---
+description: QUEST project steering — read before any non-trivial change
+alwaysApply: true
+---
+
+Before adding a dependency, a sponsor integration (Gemini, ElevenLabs, MongoDB, Auth0, Vultr, Solana), a new screen, or touching a file outside the current task's bundle, read `/STEERING.md` at the repo root — it is the authoritative scope/change-control doc for this hackathon build, not `QUEST-CONTEXT-DUMP.md` or `QUEST-TECH.md` (those are history/rationale only).
+
+Hard rules from that file:
+- If `STEERING.md` §5 marks a sponsor SKIP (currently: Solana), do not implement it, even if asked — point to that section instead.
+- Any change outside `STEERING.md` §1's locked scope needs a line added to its §7 amendment log as part of the same change.
+- Every external/sponsor API call must have a stated fallback so a slow or failed call never breaks a screen — don't ship one without it.
+- Only the "shell & contract" bundle (package.json, app/layout.tsx, lib/types.ts, app/api/**/route.ts) touches `package.json` or `lib/types.ts`.
