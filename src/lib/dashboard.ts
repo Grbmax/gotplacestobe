@@ -20,6 +20,13 @@ export function louder(a: Tone, b: Tone): Tone {
   return TONE_RANK[a] >= TONE_RANK[b] ? a : b;
 }
 
+export function cityContextNeedsRefresh(ctx?: CityContext) {
+  if (!ctx) return true;
+  if (!ctx.areaLead || !ctx.civic || !ctx.leadLine) return true;
+  if (!ctx.yearBuilt && !ctx.nearby?.used && !ctx.matched) return true;
+  return false;
+}
+
 function ebllTone(level: EbllLevel | undefined): Tone {
   if (level === "elevated") return "rose";
   if (level === "watch") return "amber";
@@ -49,34 +56,42 @@ export function dashboardTiles(context: CityContext | undefined, scans: Scan[]):
   const photos = photoIssues(scans);
   const tiles: IssueTile[] = [];
 
+  const blockEstimate = Boolean(context?.nearby?.used);
+  const year = context?.yearBuilt;
+
   if (context?.leadPaintLikely) {
     tiles.push({
       id: "paint",
       tone: "amber",
-      kicker: "This house",
-      title: `Built ${context.yearBuilt ?? "before 1978"} · lead likely`,
+      kicker: blockEstimate && !context.parcelId ? "This block" : "This house",
+      title: blockEstimate
+        ? `Nearby houses built ~${year ?? "pre-1978"} · lead likely`
+        : `Built ${year ?? "before 1978"} · lead likely`,
       body: context.leadPaintNote,
-      read:
-        "HUD treats pre-1978 housing as likely to contain lead-based paint unless it has been certified otherwise. Peeling or chipped paint here is a health-housing issue, not cosmetic. Use wet-cleaning and licensed abatement if paint will be disturbed.",
+      read: blockEstimate
+        ? "County assessment did not join this exact house number, so cribCheck uses nearby parcels on the same street. That is a block estimate, not a PIN-level year. Treat peeling paint as a possible lead-paint issue until a certified year shows up."
+        : "HUD treats pre-1978 housing as likely to contain lead-based paint unless it has been certified otherwise. Peeling or chipped paint here is a health-housing issue, not cosmetic. Use wet-cleaning and licensed abatement if paint will be disturbed.",
       notes: [
         context.leadLine?.isLead
           ? context.leadLine.summary
           : context.leadServiceLine
             ? "Water-authority records flag a lead service line on this parcel."
             : "",
-        context.parcelId ? `PIN ${context.parcelId}` : "",
+        context.parcelId ? `PIN ${context.parcelId}` : context.nearby?.note ?? "",
       ].filter(Boolean),
     });
-  } else if (context?.yearBuilt && context.yearBuilt >= 1978) {
+  } else if (year && year >= 1978) {
     tiles.push({
       id: "paint",
       tone: "green",
-      kicker: "This house",
-      title: `Built ${context.yearBuilt} · after the lead-paint ban`,
-      body: context.leadPaintNote,
+      kicker: blockEstimate && !context?.parcelId ? "This block" : "This house",
+      title: blockEstimate
+        ? `Nearby houses built ~${year} · after the lead-paint ban`
+        : `Built ${year} · after the lead-paint ban`,
+      body: context?.leadPaintNote ?? "",
       read:
         "This assessment year is after the 1978 federal lead-paint ban, so peeling paint is less likely to be lead. Moisture and mold still matter. Confirm any remodel that reused older materials.",
-      notes: [context.parcelId ? `PIN ${context.parcelId}` : ""].filter(Boolean),
+      notes: [context?.parcelId ? `PIN ${context.parcelId}` : context?.nearby?.note ?? ""].filter(Boolean),
     });
   } else {
     tiles.push({
@@ -120,6 +135,8 @@ export function dashboardTiles(context: CityContext | undefined, scans: Scan[]):
     ].filter((n): n is string => Boolean(n)),
   });
 
+  const nearbyFile =
+    (context?.nearbyInspections?.length ?? 0) + (context?.nearbyServiceRequests?.length ?? 0);
   const fileCount =
     (context?.inspections.length ?? 0) +
     (context?.violations.length ?? 0) +
@@ -130,22 +147,31 @@ export function dashboardTiles(context: CityContext | undefined, scans: Scan[]):
   });
   tiles.push({
     id: "file",
-    tone: openish.length ? "rose" : fileCount ? "amber" : "green",
-    kicker: "Allegheny County record",
+    tone: openish.length ? "rose" : fileCount ? "amber" : nearbyFile ? "amber" : "green",
+    kicker: fileCount ? "Allegheny County record" : nearbyFile ? "This block" : "Allegheny County record",
     title: fileCount
       ? `${fileCount} ACHD housing record${fileCount === 1 ? "" : "s"}`
-      : "No ACHD housing inspections matched",
+      : nearbyFile
+        ? `No file on this PIN · ${nearbyFile} on this block`
+        : "No ACHD housing inspections matched",
     body: openish.length
       ? `${openish.length} cited condition${openish.length === 1 ? "" : "s"} not marked corrected.`
       : fileCount
         ? "Complaints or inspections exist; read dates — they may already be closed."
-        : "No Housing & Community Environment match for this PIN/address.",
+        : nearbyFile
+          ? "No Housing & Community Environment row for this house number. Nearby addresses on the same street do have a paper trail — shown as a block signal, not this PIN’s file."
+          : "No Housing & Community Environment match for this PIN/address.",
     read: fileCount
       ? "These are Allegheny County Housing & Community Environment complaints and inspections for this address or PIN. Dates may already be closed. Use them to show the house has a municipal paper trail, not as a live court filing."
-      : "No ACHD Housing & Community Environment row matched this street yet. That does not mean the unit is clear — only that this lookup found no file.",
+      : nearbyFile
+        ? "These nearby ACHD rows are not citations against this exact house. They only show the block is in the county’s housing system. Do not paste them into a complaint as if they named this unit."
+        : "No ACHD Housing & Community Environment row matched this street yet. That does not mean the unit is clear — only that this lookup found no file.",
     notes: [
       ...(context?.inspections ?? []).slice(0, 4).map((row) =>
         [row.type ?? "Inspection", row.date?.slice(0, 10)].filter(Boolean).join(" · "),
+      ),
+      ...(context?.nearbyInspections ?? []).slice(0, 3).map((row) =>
+        ["Nearby", row.address, row.type ?? "inspection"].filter(Boolean).join(" · "),
       ),
       ...(context?.violations ?? []).slice(0, 4).map((row) =>
         [row.violation, row.status].filter(Boolean).join(" · "),

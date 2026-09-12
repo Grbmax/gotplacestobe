@@ -22,7 +22,13 @@ export function grantMatch(context: CityContext | undefined, scans: Scan[]): Gra
       id: "age",
       label: "Built before 1978?",
       met: pre1978,
-      detail: year ? `Yes (${year})` : context?.leadPaintLikely ? "Yes (treated as pre-1978)" : "Not on file yet",
+      detail: year
+        ? context?.nearby?.used && !context.parcelId
+          ? `Nearby houses ~${year} (block estimate)`
+          : `Yes (${year})`
+        : context?.leadPaintLikely
+          ? "Yes (treated as pre-1978)"
+          : "Not on file yet",
     },
     {
       id: "zip",

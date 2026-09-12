@@ -4,8 +4,8 @@ import { runDetect } from "./detect";
 import { escalateDetections } from "./escalate";
 import { getTrainingFrameBytes, saveTrainingFrame } from "./frames";
 import { totalAffectedRatio } from "./mockMath";
-import { displayAddress, lookupCityContext, placeKeyFromAddress } from "./pgh";
-import type { Property, Review, Role, Scan, SurfaceCoverage } from "./types";
+import { displayAddress, fillCityContextFromNearbyHouses, lookupCityContext, placeKeyFromAddress } from "./pgh";
+import type { Property, Review, Role, Scan, SurfaceCoverage, Walk, WalkKind } from "./types";
 
 type PropertyDoc = Omit<Property, "id"> & { _id: string };
 type ScanDoc = Omit<Scan, "id"> & { _id: string };
@@ -154,6 +154,7 @@ function asProperty(doc: PropertyDoc): Property {
     createdBy: doc.createdBy,
     createdByName: doc.createdByName,
     isSample: doc.isSample,
+    walks: doc.walks,
   };
 }
 
@@ -166,6 +167,7 @@ function asScan(doc: ScanDoc): Scan {
   return {
     id: doc._id,
     propertyId: doc.propertyId,
+    walkId: doc.walkId,
     room: doc.room,
     surface: doc.surface,
     imageUrl: clientImageUrl(doc._id, doc.imageUrl),
@@ -202,8 +204,22 @@ export async function listProperties(): Promise<Property[]> {
   return docs.map(asProperty);
 }
 
-function keyOf(property: Property) {
-  return property.placeKey || placeKeyFromAddress(property.label);
+function addressKey(property: Property) {
+  const raw =
+    property.unit && !/\b(?:apt|apartment|unit|#)\b/i.test(property.label)
+      ? `${property.label} Apt ${property.unit}`
+      : property.label;
+  return placeKeyFromAddress(raw);
+}
+
+async function patchProperty(id: string, patch: Partial<Property>) {
+  if (!hasMongo()) {
+    const i = mem.properties.findIndex((p) => p.id === id);
+    if (i >= 0) mem.properties[i] = { ...mem.properties[i]!, ...patch };
+    return;
+  }
+  const db = await getDb();
+  await db.collection<PropertyDoc>("properties").updateOne({ _id: id }, { $set: patch });
 }
 
 async function reassignScans(fromId: string, toId: string) {
@@ -237,7 +253,7 @@ async function consolidateDuplicateHouses() {
     // a deletion target. Without this, any real property sharing its address gets
     // silently deleted here (it always "loses" to the sample's seeded scan count).
     if (p.isSample) continue;
-    const key = keyOf(p);
+    const key = addressKey(p);
     if (!key.split("|")[0]) continue;
     const list = groups.get(key) ?? [];
     list.push(p);
@@ -263,17 +279,26 @@ async function consolidateDuplicateHouses() {
     );
     withCounts.sort((a, b) => b.n - a.n || a.p.createdAt.localeCompare(b.p.createdAt));
     const keep = withCounts[0]!.p;
+    const extraWalks = withCounts.slice(1).flatMap((row) => row.p.walks ?? []);
+    const walks = [...(keep.walks ?? []), ...extraWalks].filter(
+      (w, i, all) => all.findIndex((x) => x.id === w.id) === i,
+    );
     keep.placeKey = placeKey;
+    keep.label = displayAddress(keep.label);
+    keep.walks = walks;
     for (const extra of withCounts.slice(1)) {
       await reassignScans(extra.p.id, keep.id);
       await deletePropertyRecord(extra.p.id);
     }
     if (!hasMongo()) {
       const i = mem.properties.findIndex((p) => p.id === keep.id);
-      if (i >= 0) mem.properties[i] = { ...keep, placeKey };
+      if (i >= 0) mem.properties[i] = { ...keep, placeKey, label: keep.label, walks };
     } else {
       const db = await getDb();
-      await db.collection<PropertyDoc>("properties").updateOne({ _id: keep.id }, { $set: { placeKey } });
+      await db.collection<PropertyDoc>("properties").updateOne(
+        { _id: keep.id },
+        { $set: { placeKey, label: keep.label, walks } },
+      );
     }
   }
 }
@@ -291,10 +316,10 @@ export async function createProperty(input: {
   // Never reuse the seeded sample property just because someone's real address
   // happens to normalize to the same key (e.g. typing "5614 Beacon St" again) —
   // that would silently hand them fixed demo data and block them from scanning.
-  const existing = (await listProperties()).find((p) => !p.isSample && keyOf(p) === placeKey);
+  const existing = (await listProperties()).find((p) => !p.isSample && addressKey(p) === placeKey);
   if (existing) return { property: existing, reused: true };
 
-  const cityContext = await lookupCityContext(raw);
+  const cityContext = fillCityContextFromNearbyHouses(raw, await listProperties(), await lookupCityContext(raw));
   const property: Property = {
     id: id("prop"),
     label: displayAddress(raw),
@@ -326,6 +351,12 @@ export async function createProperty(input: {
 }
 
 export async function getProperty(propertyId: string): Promise<Property | null> {
+  const existing = await loadProperty(propertyId);
+  if (!existing) return null;
+  return ensureWalksFor(existing);
+}
+
+async function loadProperty(propertyId: string): Promise<Property | null> {
   await ensureSeed();
   if (!hasMongo()) return mem.properties.find((p) => p.id === propertyId) ?? null;
   const db = await getDb();
@@ -333,10 +364,83 @@ export async function getProperty(propertyId: string): Promise<Property | null> 
   return doc ? asProperty(doc) : null;
 }
 
+function makeWalk(kind: WalkKind, startedAt: string, createdBy?: string, createdByName?: string): Walk {
+  return {
+    id: id("walk"),
+    kind,
+    startedAt,
+    createdBy,
+    createdByName,
+  };
+}
+
+async function ensureWalksFor(property: Property): Promise<Property> {
+  if (property.isSample) return property;
+  const scans = await listScans({ propertyId: property.id });
+  let walks = [...(property.walks ?? [])];
+  let changed = false;
+  if (!walks.length && scans.length) {
+    const oldest = [...scans].sort((a, b) => a.capturedAt.localeCompare(b.capturedAt))[0]!;
+    walks = [makeWalk("move_in", oldest.capturedAt, property.createdBy, property.createdByName)];
+    changed = true;
+  }
+  const fallback = walks[0];
+  if (fallback) {
+    const missing = scans.filter((s) => !s.walkId);
+    if (missing.length) {
+      changed = true;
+      if (!hasMongo()) {
+        for (const s of mem.scans) {
+          if (s.propertyId === property.id && !s.walkId) s.walkId = fallback.id;
+        }
+      } else {
+        const db = await getDb();
+        await db.collection("scans").updateMany(
+          { propertyId: property.id, $or: [{ walkId: { $exists: false } }, { walkId: null }, { walkId: "" }] },
+          { $set: { walkId: fallback.id } },
+        );
+      }
+    }
+  }
+  if (changed) {
+    property.walks = walks;
+    await patchProperty(property.id, { walks });
+  }
+  return property;
+}
+
+export async function createWalk(input: {
+  propertyId: string;
+  kind: WalkKind;
+  createdBy?: string;
+  createdByName?: string;
+}): Promise<{ walk: Walk; property: Property } | { error: string }> {
+  const property = await getProperty(input.propertyId);
+  if (!property) return { error: "Unknown property" };
+  if (property.id === SAMPLE_PROPERTY_ID) return { error: "Sample house is read-only" };
+  const now = new Date().toISOString();
+  let walks = [...(property.walks ?? [])];
+  const openSame = walks.find((w) => !w.closedAt && w.kind === input.kind);
+  if (openSame && input.kind === "move_in") {
+    return { walk: openSame, property };
+  }
+  const walk = makeWalk(input.kind, now, input.createdBy, input.createdByName);
+  if (walks.length === 0) {
+    walks = [walk];
+  } else {
+    walks = walks.map((w) => (w.closedAt ? w : { ...w, closedAt: now }));
+    walks.push(walk);
+  }
+  property.walks = walks;
+  await patchProperty(property.id, { walks });
+  return { walk, property };
+}
+
 export async function refreshPropertyCity(propertyId: string): Promise<Property | null> {
   const existing = await getProperty(propertyId);
   if (!existing) return null;
-  const cityContext = await lookupCityContext(existing.label);
+  const lookedUp = await lookupCityContext(existing.label);
+  const cityContext = fillCityContextFromNearbyHouses(existing.label, await listProperties(), lookedUp);
   existing.cityContext = cityContext;
   if (!hasMongo()) {
     const i = mem.properties.findIndex((p) => p.id === propertyId);
@@ -428,12 +532,32 @@ export async function createScan(input: {
   source?: "capture" | "upload";
   scannedBy?: string;
   scannedByName?: string;
+  walkId?: string;
 }): Promise<{ scan: Scan } | { error: string }> {
   await ensureSeed();
   const property = await getProperty(input.propertyId);
   if (!property) return { error: "Unknown property" };
   if (property.id === SAMPLE_PROPERTY_ID) {
     return { error: "Create your own property before scanning — the sample one is demo data only" };
+  }
+
+  let walkId = input.walkId;
+  const walks = property.walks ?? [];
+  if (walkId && !walks.some((w) => w.id === walkId)) walkId = undefined;
+  if (!walkId) {
+    const open = walks.find((w) => !w.closedAt) ?? walks[0];
+    if (open) {
+      walkId = open.id;
+    } else {
+      const created = await createWalk({
+        propertyId: property.id,
+        kind: "move_in",
+        createdBy: input.scannedBy,
+        createdByName: input.scannedByName,
+      });
+      if ("error" in created) return created;
+      walkId = created.walk.id;
+    }
   }
 
   const scanId = id("scan");
@@ -490,6 +614,7 @@ export async function createScan(input: {
   const scan: Scan = {
     id: scanId,
     propertyId: input.propertyId,
+    walkId,
     room,
     surface,
     imageUrl,

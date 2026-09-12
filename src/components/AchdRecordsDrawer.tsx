@@ -25,6 +25,10 @@ export function AchdRecordsDrawer({
   const inspections = context?.inspections ?? [];
   const violations = context?.violations ?? [];
   const requests = context?.serviceRequests ?? [];
+  const nearbyInspections = context?.nearbyInspections ?? [];
+  const nearbyRequests = context?.nearbyServiceRequests ?? [];
+  const hasExact = inspections.length || violations.length || requests.length;
+  const hasNearby = nearbyInspections.length || nearbyRequests.length;
   const byInsp = new Map<string, typeof violations>();
   for (const v of violations) {
     const key = v.inspectionId || "unlinked";
@@ -46,6 +50,9 @@ export function AchdRecordsDrawer({
             </h2>
             <p className="mt-1 text-xs text-slate-500">
               {`${inspections.length} inspection${inspections.length === 1 ? "" : "s"} · ${violations.length} cited condition${violations.length === 1 ? "" : "s"} · ${requests.length} service request${requests.length === 1 ? "" : "s"}`}
+              {hasNearby
+                ? ` · ${nearbyInspections.length + nearbyRequests.length} nearby on this block`
+                : ""}
             </p>
           </div>
           <button
@@ -57,9 +64,16 @@ export function AchdRecordsDrawer({
           </button>
         </div>
 
-        {!inspections.length && !violations.length && !requests.length ? (
+        {!hasExact && !hasNearby ? (
           <p className="mt-4 text-sm text-slate-500">No Housing & Community Environment rows matched this street.</p>
         ) : (
+          <>
+            {!hasExact && hasNearby ? (
+              <p className="mt-4 text-xs leading-relaxed text-amber-800">
+                Nothing names this exact house number. Nearby ACHD rows on the same street are below — a block
+                signal, not this PIN’s file.
+              </p>
+            ) : null}
           <ol className="mt-4 space-y-3">
             {inspections.map((row) => {
               const cites = byInsp.get(row.inspectionId) ?? [];
@@ -107,6 +121,31 @@ export function AchdRecordsDrawer({
                 </li>
               ))}
           </ol>
+            {hasNearby ? (
+              <div className="mt-4">
+                <p className="text-[10px] uppercase tracking-[0.16em] text-amber-800">Nearby on this block</p>
+                <ol className="mt-2 space-y-2">
+                  {nearbyInspections.map((row) => (
+                    <li
+                      key={`near-insp:${row.inspectionId || row.address}`}
+                      className="rounded-xl border border-amber-200 bg-amber-50 p-3"
+                    >
+                      <p className="text-[10px] uppercase tracking-[0.14em] text-slate-500">{fmtDate(row.date)}</p>
+                      <p className="mt-1 text-sm font-medium">{row.type || "Inspection"}</p>
+                      <p className="text-xs text-slate-500">{row.address}</p>
+                    </li>
+                  ))}
+                  {nearbyRequests.map((row) => (
+                    <li key={`near-sr:${row.number || row.address}`} className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+                      <p className="text-[10px] uppercase tracking-[0.14em] text-slate-500">{fmtDate(row.date)}</p>
+                      <p className="mt-1 text-sm font-medium">{row.requestType || "Service request"}</p>
+                      <p className="text-xs text-slate-500">{row.address}</p>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            ) : null}
+          </>
         )}
       </aside>
     </div>

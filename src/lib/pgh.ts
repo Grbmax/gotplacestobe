@@ -7,6 +7,7 @@ import type {
   HousingInspection,
   HousingServiceRequest,
   HousingViolation,
+  NearbyEstimate,
 } from "./types";
 
 const CKAN = "https://data.wprdc.org/api/3/action/datastore_search";
@@ -79,6 +80,8 @@ export function parseStreetAddress(raw: string) {
   const zip = cleaned.match(/\b(15\d{3})\b/)?.[1] ?? "";
   let working = cleaned
     .replace(/\bPITTSBURGH\b.*$/i, "")
+    .replace(/\bMCKEESPORT\b.*$/i, "")
+    .replace(/\bWILKINSBURG\b.*$/i, "")
     .replace(/\bPA\b.*$/i, "")
     .replace(/\b15\d{3}\b/g, "")
     .trim();
@@ -93,17 +96,28 @@ export function parseStreetAddress(raw: string) {
   return { house, street, tokens, queryToken, zip, unit, cleaned: working };
 }
 
+const STREET_ALIASES: Record<string, string> = { BACON: "BEACON" };
+
+function canonicalStreetTokens(tokens: string[]) {
+  return tokens.map((t) => STREET_ALIASES[t] ?? t);
+}
+
 /** Same building + same unit → one report. Different apt/unit stays a separate house. */
 export function placeKeyFromAddress(raw: string) {
   const p = parseStreetAddress(raw);
-  const street = p.tokens.join(" ") || p.street.replace(/\s+/g, " ");
+  const street = canonicalStreetTokens(p.tokens).join(" ") || p.street.replace(/\s+/g, " ");
   const unit = p.unit || "_";
   return `${p.house}|${street}|${unit}`.toLowerCase();
 }
 
+export function streetKeyFromAddress(raw: string) {
+  const p = parseStreetAddress(raw);
+  return canonicalStreetTokens(p.tokens).join(" ").toLowerCase();
+}
+
 export function displayAddress(raw: string) {
   const p = parseStreetAddress(raw);
-  const street = p.street || raw.trim();
+  const street = (p.street || raw.trim()).replace(/\bBACON\b/gi, "Beacon");
   const base = [p.house, street].filter(Boolean).join(" ") || raw.trim();
   return p.unit ? `${base} · Apt ${p.unit}` : base;
 }
@@ -189,6 +203,29 @@ function addressMatches(rec: Rec, house: string, tokens: string[]) {
   const need = tokens.filter((t) => t.length >= 3);
   if (!need.length) return Boolean(house) && street.includes(house);
   return need.every((t) => have.includes(t));
+}
+
+function streetQuery(parsed: ReturnType<typeof parseStreetAddress>) {
+  const street = parsed.street.replace(/\bBACON\b/g, "BEACON");
+  return [parsed.house, street].filter(Boolean).join(" ").trim();
+}
+
+async function probeStreetParcels(parsed: ReturnType<typeof parseStreetAddress>): Promise<Rec[]> {
+  const target = Number(parsed.house);
+  const street = parsed.street.replace(/\bBACON\b/g, "BEACON");
+  if (!Number.isFinite(target) || !street) return [];
+  const offsets = [0, 2, -2, 4, -4, 6, -6, 8, -8, 10, -10, 1, -1];
+  const nums = [...new Set(offsets.map((o) => target + o).filter((n) => n > 0))].slice(0, 12);
+  const batches = await Promise.all(
+    nums.map((n) =>
+      datastoreSearch({
+        resource_id: RESOURCES.assessments,
+        q: `${n} ${street}`,
+        limit: 4,
+      }),
+    ),
+  );
+  return batches.flat();
 }
 
 async function datastoreSearch(input: {
@@ -284,9 +321,11 @@ function civicPulse(rows: Rec[], tokens: string[]): CivicPulse {
   };
 }
 
-function leadNote(yearBuilt: number | null, leadLine?: Rec | null) {
+function leadNote(yearBuilt: number | null, leadLine?: Rec | null, nearby?: NearbyEstimate) {
   const bits: string[] = [];
-  if (yearBuilt && yearBuilt > 0 && yearBuilt < 1978) {
+  if (nearby?.used && yearBuilt) {
+    bits.push(nearby.note);
+  } else if (yearBuilt && yearBuilt > 0 && yearBuilt < 1978) {
     bits.push(
       `Built ${yearBuilt}. HUD treats pre-1978 housing as likely to contain lead-based paint unless it has been certified otherwise.`,
     );
@@ -302,20 +341,167 @@ function leadNote(yearBuilt: number | null, leadLine?: Rec | null) {
   return bits.join(" ");
 }
 
+function isExactParcel(row: Rec, house: string, tokens: string[]) {
+  const num = asText(row.PROPERTYHOUSENUM);
+  if (house && num !== house) return false;
+  const st = asText(row.PROPERTYADDRESS).toUpperCase();
+  const need = tokens.filter((t) => t.length >= 3);
+  if (!need.length) return Boolean(house) && num === house;
+  return need.every((t) => st.includes(t));
+}
+
+function nearbyParcels(rows: Rec[], house: string, tokens: string[]) {
+  const target = Number(house);
+  if (!Number.isFinite(target)) return [];
+  return rows
+    .map((row) => {
+      const n = Number(asText(row.PROPERTYHOUSENUM));
+      const year = asNum(row.YEARBLT);
+      const dist = Number.isFinite(n) ? Math.abs(n - target) : 9999;
+      const sameSide = Number.isFinite(n) && n % 2 === target % 2;
+      return { row, n, year, dist, sameSide };
+    })
+    .filter((item) => {
+      if (item.dist === 0 || item.dist > 80) return false;
+      const st = asText(item.row.PROPERTYADDRESS).toUpperCase();
+      const need = tokens.filter((t) => t.length >= 3);
+      return need.length ? need.every((t) => st.includes(t)) : true;
+    })
+    .sort((a, b) => {
+      if (a.sameSide !== b.sameSide) return a.sameSide ? -1 : 1;
+      return a.dist - b.dist;
+    })
+    .slice(0, 8);
+}
+
+function medianYear(years: number[]) {
+  const s = [...years].sort((a, b) => a - b);
+  return s[Math.floor((s.length - 1) / 2)] ?? null;
+}
+
+function recHouseNumber(rec: Rec): number | null {
+  const fromField = Number(asText(rec.PROPERTYHOUSENUM || rec.house_number));
+  if (Number.isFinite(fromField) && fromField > 0) return fromField;
+  const street = recordStreet(rec);
+  const m = street.match(/\b(\d{1,6})\b/);
+  const n = m ? Number(m[1]) : NaN;
+  return Number.isFinite(n) ? n : null;
+}
+
+function nearbyEstimateFromParcels(
+  neighbors: ReturnType<typeof nearbyParcels>,
+  tokens: string[],
+): NearbyEstimate | undefined {
+  const years = neighbors
+    .map((n) => n.year)
+    .filter((y): y is number => y != null && y > 1800 && y < 2030);
+  if (!neighbors.length && !years.length) return undefined;
+  const zips = neighbors
+    .map((n) => asText(n.row.PROPERTYZIP).replace(/\D/g, "").slice(0, 5))
+    .filter((z) => z.length === 5);
+  const zipCode = zips.sort((a, b) => zips.filter((z) => z === b).length - zips.filter((z) => z === a).length)[0];
+  const yearBuilt = years.length ? medianYear(years) : null;
+  const street = tokens.join(" ").toLowerCase() || "this street";
+  const nearestHouses = neighbors
+    .slice(0, 4)
+    .map((n) => `${n.n} ${asText(n.row.PROPERTYADDRESS)}`.trim())
+    .filter(Boolean);
+  const minY = years.length ? Math.min(...years) : undefined;
+  const maxY = years.length ? Math.max(...years) : undefined;
+  const yearBit =
+    yearBuilt != null
+      ? `Typical year built ${yearBuilt}${minY != null && maxY != null && minY !== maxY ? ` (range ${minY}–${maxY})` : ""}`
+      : "Year built still mixed";
+  return {
+    used: true,
+    sampleSize: neighbors.length,
+    street,
+    nearestHouses,
+    yearBuilt,
+    yearBuiltMin: minY,
+    yearBuiltMax: maxY,
+    zipCode,
+    note: `No PIN matched this exact house number. Used ${neighbors.length} nearby parcel${neighbors.length === 1 ? "" : "s"} on ${street} (${yearBit}). Block estimate — not a year-built for this PIN.`,
+  };
+}
+
+function guessZip(address: string, parsed: ReturnType<typeof parseStreetAddress>) {
+  if (parsed.zip) return parsed.zip;
+  const u = address.toUpperCase();
+  if (u.includes("MCKEESPORT")) return "15132";
+  if (/\bBEACON\b/.test(parsed.street)) return "15217";
+  return undefined;
+}
+
+export function fillCityContextFromNearbyHouses(
+  address: string,
+  others: { label: string; cityContext?: CityContext }[],
+  ctx: CityContext,
+): CityContext {
+  if (ctx.yearBuilt && ctx.areaLead && ctx.areaLead.level !== "unknown") return ctx;
+  const key = streetKeyFromAddress(address);
+  const house = Number(parseStreetAddress(address).house);
+  const scored = others
+    .map((row) => {
+      const other = row.cityContext;
+      if (!other || streetKeyFromAddress(row.label) !== key) return null;
+      if (!other.yearBuilt && !other.zipCode && other.areaLead?.level === "unknown") return null;
+      const n = Number(parseStreetAddress(row.label).house);
+      const dist = Number.isFinite(house) && Number.isFinite(n) ? Math.abs(n - house) : 999;
+      if (dist === 0 || dist > 80) return null;
+      return { label: row.label, other, dist };
+    })
+    .filter((row): row is { label: string; other: CityContext; dist: number } => Boolean(row))
+    .sort((a, b) => a.dist - b.dist);
+  if (!scored.length) return ctx;
+  const years = scored.map((s) => s.other.yearBuilt).filter((y): y is number => Boolean(y && y > 1800));
+  const mid = years.length ? years.sort((a, b) => a - b)[Math.floor((years.length - 1) / 2)] : null;
+  const yearBuilt = ctx.yearBuilt ?? mid ?? null;
+  const zipCode = ctx.zipCode ?? scored.find((s) => s.other.zipCode)?.other.zipCode;
+  const areaLead =
+    ctx.areaLead?.level !== "unknown" && ctx.areaLead
+      ? ctx.areaLead
+      : (scored.find((s) => s.other.areaLead && s.other.areaLead.level !== "unknown")?.other.areaLead ?? ctx.areaLead);
+  const civic = ctx.civic?.waterNearby ? ctx.civic : (scored.find((s) => s.other.civic)?.other.civic ?? ctx.civic);
+  const sample = scored.slice(0, 4).map((s) => s.label);
+  const nearby: NearbyEstimate = {
+    used: true,
+    sampleSize: scored.length,
+    street: key || "this street",
+    nearestHouses: sample,
+    yearBuilt,
+    zipCode,
+    note: `No PIN matched this exact house number. Estimated from ${scored.length} nearby house${scored.length === 1 ? "" : "s"} already on file (${sample.join(", ")}). Block estimate — not this PIN’s assessment.`,
+  };
+  const year = yearBuilt && yearBuilt > 0 ? yearBuilt : ctx.yearBuilt ?? null;
+  return {
+    ...ctx,
+    zipCode: zipCode ?? ctx.zipCode,
+    yearBuilt: year,
+    leadPaintLikely: Boolean(year && year < 1978) || ctx.leadPaintLikely,
+    leadPaintNote: nearby.note,
+    areaLead: areaLead ?? ctx.areaLead,
+    civic,
+    nearby,
+  };
+}
+
 export async function lookupCityContext(address: string): Promise<CityContext> {
   const parsed = parseStreetAddress(address);
+  const matchTokens = parsed.tokens.map((t) => (t === "BACON" ? "BEACON" : t));
   if (!parsed.house && !parsed.queryToken) {
     return emptyContext({ ok: true, error: "Need a street number to match county records." });
   }
 
   try {
     const query = parsed.queryToken || parsed.house;
-    const [assessments, srNow, inspNow, srHist, threeOneOne] = await Promise.all([
+    const [assessments, probedParcels, srNow, inspNow, srHist, threeOneOne] = await Promise.all([
       datastoreSearch({
         resource_id: RESOURCES.assessments,
-        q: `${parsed.house} ${parsed.street}`.trim(),
+        q: streetQuery(parsed),
         limit: 8,
       }),
+      probeStreetParcels(parsed),
       datastoreSearch({ resource_id: RESOURCES.hceServiceRequests, q: query, limit: 80 }),
       datastoreSearch({ resource_id: RESOURCES.hceInspections, q: query, limit: 80 }),
       datastoreSearch({ resource_id: RESOURCES.hceServiceRequestsHist, q: query, limit: 80 }),
@@ -327,24 +513,35 @@ export async function lookupCityContext(address: string): Promise<CityContext> {
       }),
     ]);
 
-    const assessment =
-      assessments.find((row) => {
-        const num = asText(row.PROPERTYHOUSENUM);
-        const st = asText(row.PROPERTYADDRESS).toUpperCase();
-        if (parsed.house && num !== parsed.house) return false;
-        return parsed.tokens.every((t) => t.length < 3 || st.includes(t));
-      }) ?? assessments[0];
-
+    const assessmentPool = uniqBy(
+      [...assessments, ...probedParcels],
+      (row) => asText(row.PARID) || `${asText(row.PROPERTYHOUSENUM)}|${asText(row.PROPERTYADDRESS)}`,
+    );
+    const assessment = assessmentPool.find((row) => isExactParcel(row, parsed.house, matchTokens));
+    const neighbors = nearbyParcels(assessmentPool, parsed.house, matchTokens);
     const yearBuiltRaw = assessment?.YEARBLT;
-    const yearBuilt =
+    const exactYear =
       typeof yearBuiltRaw === "number"
         ? yearBuiltRaw
         : yearBuiltRaw
           ? Number(yearBuiltRaw)
           : null;
+    const nearby =
+      !assessment || !(Number.isFinite(exactYear) && exactYear && exactYear > 0)
+        ? nearbyEstimateFromParcels(neighbors, matchTokens)
+        : undefined;
+    if (assessment && nearby) {
+      nearby.note = `This PIN has no year-built on file. ${nearby.sampleSize} nearby parcel${nearby.sampleSize === 1 ? "" : "s"} on ${nearby.street} typically date to ${nearby.yearBuilt ?? "an unknown year"}. Block estimate — not a certified year for this house.`;
+    }
+
+    const yearBuilt = (Number.isFinite(exactYear) && exactYear && exactYear > 0 ? exactYear : null) ?? nearby?.yearBuilt ?? null;
     const parcelId = asText(assessment?.PARID) || undefined;
     const zipCode =
-      asText(assessment?.PROPERTYZIP).replace(/\D/g, "").slice(0, 5) || parsed.zip || undefined;
+      asText(assessment?.PROPERTYZIP).replace(/\D/g, "").slice(0, 5) ||
+      nearby?.zipCode ||
+      parsed.zip ||
+      guessZip(address, parsed) ||
+      undefined;
 
     const [leadRows, parcelEbllRows, zipEbllRows] = await Promise.all([
       parcelId
@@ -370,10 +567,21 @@ export async function lookupCityContext(address: string): Promise<CityContext> {
         : Promise.resolve([]),
     ]);
 
-    const matchedSr = [...srNow, ...srHist].filter((row) =>
-      addressMatches(row, parsed.house, parsed.tokens),
-    );
-    const matchedInsp = inspNow.filter((row) => addressMatches(row, parsed.house, parsed.tokens));
+    const targetHouse = Number(parsed.house);
+    const onThisHouse = (row: Rec) => addressMatches(row, parsed.house, matchTokens);
+    const onThisBlock = (row: Rec) => {
+      if (!streetTokenMatch(recordStreet(row), matchTokens)) return false;
+      if (!Number.isFinite(targetHouse)) return false;
+      const n = recHouseNumber(row);
+      if (n == null) return streetTokenMatch(recordStreet(row), matchTokens);
+      const dist = Math.abs(n - targetHouse);
+      return dist > 0 && dist <= 80;
+    };
+
+    const matchedSr = [...srNow, ...srHist].filter(onThisHouse);
+    const nearbySr = [...srNow, ...srHist].filter(onThisBlock);
+    const matchedInsp = inspNow.filter(onThisHouse);
+    const nearbyInspRows = inspNow.filter(onThisBlock);
 
     const histIds = matchedSr
       .map((row) => asText(row.INSPECT_ID))
@@ -430,6 +638,18 @@ export async function lookupCityContext(address: string): Promise<CityContext> {
       (row) => row.number || row.address,
     ).slice(0, 12);
 
+    const nearbyServiceRequests: HousingServiceRequest[] = uniqBy(
+      nearbySr.map((row) => ({
+        number: asText(row.service_request_number || row.SR_NUM),
+        date: asText(row.request_date) || undefined,
+        address: recordStreet(row),
+        city: asText(row.city || row.CITY) || undefined,
+        requestType: asText(row.request_type || row.REQUEST_TYPE) || undefined,
+        propertyType: asText(row.property_type || row.PROPERTY_TYPE) || undefined,
+      })),
+      (row) => row.number || row.address,
+    ).slice(0, 8);
+
     const inspections: HousingInspection[] = uniqBy(
       [
         ...matchedInsp.map((row) => ({
@@ -452,6 +672,19 @@ export async function lookupCityContext(address: string): Promise<CityContext> {
       (row) => row.inspectionId || `${row.date}-${row.address}`,
     ).slice(0, 12);
 
+    const nearbyInspections: HousingInspection[] = uniqBy(
+      nearbyInspRows.map((row) => ({
+        inspectionId: asText(row.inspection_id),
+        serviceRequest: asText(row.service_request_number) || undefined,
+        date: asText(row.inspection_date) || undefined,
+        type: asText(row.inspection_type) || undefined,
+        address: recordStreet(row),
+        city: asText(row.city) || undefined,
+        requestType: asText(row.request_type) || undefined,
+      })),
+      (row) => row.inspectionId || `${row.date}-${row.address}`,
+    ).slice(0, 8);
+
     const violations: HousingViolation[] = uniqBy(
       violationRows.map((row) => ({
         inspectionId: asText(row.inspection_id || row.INSPECT_ID),
@@ -471,7 +704,7 @@ export async function lookupCityContext(address: string): Promise<CityContext> {
     const leadPaintLikely = Boolean(year && year > 0 && year < 1978);
     const leadLine = buildLeadLine(leadRows[0], zipCode);
     const leadServiceLine = leadLine.isLead;
-    const civic = civicPulse(threeOneOne, parsed.tokens);
+    const civic = civicPulse(threeOneOne, matchTokens);
 
     const zipRow = zipEbllRows.find((row) => asText(row["Zip Code"]).slice(0, 5) === zipCode);
     const parcelEbll = parcelEbllRows[0];
@@ -502,22 +735,30 @@ export async function lookupCityContext(address: string): Promise<CityContext> {
       summary: areaLeadSummary({ zipCode, zipPercent, tractPercent, level }),
     };
 
+    const neighborhood =
+      asText(assessment?.NEIGHDESC || assessment?.PROPERTYCITY) ||
+      asText(neighbors[0]?.row.NEIGHDESC || neighbors[0]?.row.PROPERTYCITY) ||
+      undefined;
+
     return emptyContext({
       ok: true,
       matched,
       parcelId,
       zipCode,
       yearBuilt: year && year > 0 ? year : null,
-      neighborhood: asText(assessment?.NEIGHDESC || assessment?.PROPERTYCITY) || undefined,
+      neighborhood,
       leadPaintLikely,
       leadServiceLine,
       leadLine,
-      leadPaintNote: leadNote(year && year > 0 ? year : null, leadRows[0]),
+      leadPaintNote: leadNote(year && year > 0 ? year : null, leadRows[0], nearby),
       areaLead,
       civic,
+      nearby,
       serviceRequests,
       inspections,
       violations,
+      nearbyServiceRequests: nearbyServiceRequests.length ? nearbyServiceRequests : undefined,
+      nearbyInspections: nearbyInspections.length ? nearbyInspections : undefined,
     });
   } catch (err) {
     return emptyContext({

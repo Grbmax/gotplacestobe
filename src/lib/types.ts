@@ -104,6 +104,19 @@ export type AreaLead = {
   summary: string;
 };
 
+/** Same-street parcels used when this house number has no PIN of its own. */
+export type NearbyEstimate = {
+  used: boolean;
+  sampleSize: number;
+  street: string;
+  nearestHouses: string[];
+  yearBuilt?: number | null;
+  yearBuiltMin?: number;
+  yearBuiltMax?: number;
+  zipCode?: string;
+  note: string;
+};
+
 export type CityContext = {
   fetchedAt: string;
   ok: boolean;
@@ -119,10 +132,25 @@ export type CityContext = {
   leadPaintNote: string;
   areaLead?: AreaLead;
   civic?: CivicPulse;
+  nearby?: NearbyEstimate;
   serviceRequests: HousingServiceRequest[];
   inspections: HousingInspection[];
   violations: HousingViolation[];
+  nearbyServiceRequests?: HousingServiceRequest[];
+  nearbyInspections?: HousingInspection[];
   error?: string;
+};
+
+export type WalkKind = "move_in" | "mid" | "exit";
+
+/** One dated packet on a house — move-in, a mid-stay check, or exit. */
+export type Walk = {
+  id: string;
+  kind: WalkKind;
+  startedAt: string;
+  closedAt?: string;
+  createdBy?: string;
+  createdByName?: string;
 };
 
 export type Property = {
@@ -136,11 +164,13 @@ export type Property = {
   unit?: string;
   placeKey?: string;
   cityContext?: CityContext;
+  walks?: Walk[];
 };
 
 export type Scan = {
   id: string;
   propertyId: string;
+  walkId?: string;
   room: string;
   surface: string;
   imageUrl: string;

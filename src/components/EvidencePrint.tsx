@@ -3,6 +3,7 @@
 import { PhotoEvidence } from "@/components/PhotoEvidence";
 import { ARTICLE_VI_URL, citationLines } from "@/lib/articleVi";
 import { grantMatch } from "@/lib/grants";
+import { walkKindLabel, groupScansByWalk } from "@/lib/walks";
 import type { Property, Review, Scan } from "@/lib/types";
 
 export function EvidencePrint({
@@ -18,6 +19,11 @@ export function EvidencePrint({
   const grant = grantMatch(ctx, scans);
   const exportedAt = new Date().toISOString();
   const cites = [...new Set(scans.flatMap((s) => citationLines(s.detections)))];
+  const walkGroups = groupScansByWalk(scans, property.walks ?? []);
+  const tenureLabel =
+    walkGroups.length > 1
+      ? `${walkGroups.length} records · ${scans.length} photos`
+      : `${scans.length} photo${scans.length === 1 ? "" : "s"}`;
 
   return (
     <div id="legal-evidence" className="print-root hidden print:block">
@@ -29,16 +35,23 @@ export function EvidencePrint({
         </p>
         <h1 className="mt-1 text-2xl font-semibold text-zinc-900">{property.label}</h1>
         <p className="mt-1 text-xs text-zinc-600">
-          Exported {new Date(exportedAt).toLocaleString()} · {property.kind} · {scans.length} photo
-          {scans.length === 1 ? "" : "s"}
+          Exported {new Date(exportedAt).toLocaleString()} · {property.kind} · {tenureLabel}
         </p>
       </header>
 
       <section className="mt-4">
         <h2 className="text-sm font-semibold text-zinc-900">County facts</h2>
         <ul className="mt-1 list-disc pl-4 text-xs text-zinc-700">
-          <li>Year built: {ctx?.yearBuilt ?? "not on file"}</li>
+          <li>
+            Year built:{" "}
+            {ctx?.yearBuilt
+              ? ctx.nearby?.used && !ctx.parcelId
+                ? `~${ctx.yearBuilt} (block estimate)`
+                : String(ctx.yearBuilt)
+              : "not on file"}
+          </li>
           <li>ZIP: {ctx?.zipCode ?? "not on file"} · PIN {ctx?.parcelId ?? "not on file"}</li>
+          {ctx?.nearby?.used && <li>{ctx.nearby.note}</li>}
           <li>{ctx?.leadPaintNote}</li>
           {ctx?.leadLine && <li>{ctx.leadLine.summary}</li>}
           {ctx?.areaLead && <li>{ctx.areaLead.summary}</li>}
@@ -77,11 +90,22 @@ export function EvidencePrint({
 
       <section className="mt-4">
         <h2 className="text-sm font-semibold text-zinc-900">Timestamped photos with bounding boxes</h2>
-        <div className="mt-2 grid grid-cols-2 gap-3">
-          {scans.map((scan) => (
-            <PhotoEvidence key={scan.id} scan={scan} />
-          ))}
-        </div>
+        {walkGroups.map((group) => (
+          <div key={group.walk?.id ?? "unfiled"} className="mt-3">
+            {walkGroups.length > 1 && (
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-600">
+                {group.walk ? walkKindLabel(group.walk.kind) : "Unfiled"}
+                {group.walk ? ` · ${new Date(group.walk.startedAt).toLocaleDateString()}` : ""}
+                {` · ${group.scans.length} photo${group.scans.length === 1 ? "" : "s"}`}
+              </h3>
+            )}
+            <div className="mt-2 grid grid-cols-2 gap-3">
+              {group.scans.map((scan) => (
+                <PhotoEvidence key={scan.id} scan={scan} />
+              ))}
+            </div>
+          </div>
+        ))}
       </section>
 
       <section className="mt-6 rounded border border-zinc-400 p-3">
