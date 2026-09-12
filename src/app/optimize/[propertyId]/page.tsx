@@ -52,15 +52,7 @@ export default function OptimizePage() {
     <main className="mx-auto min-h-dvh max-w-md px-5 pb-16 pt-8 text-white">
       <div className="flex items-center justify-between gap-3">
         <BackLink href={`/report/${propertyId}`}>Report</BackLink>
-        <div className="flex flex-wrap items-center justify-end gap-3">
-          <Link href="/" className="text-xs text-zinc-400 underline underline-offset-4">
-            Houses
-          </Link>
-          <Link href={`/scan?propertyId=${propertyId}`} className="text-xs text-emerald-400 underline underline-offset-4">
-            Camera
-          </Link>
-          <IdentityChip />
-        </div>
+        <IdentityChip />
       </div>
 
       <h1 className="mt-4 text-3xl font-semibold tracking-tight">Guided vs. naive</h1>
@@ -103,16 +95,6 @@ export default function OptimizePage() {
             followed it from the start. Naive is the order they were actually captured in. Same photos, same defects
             — only the order changes.
           </p>
-
-          <div className="mt-6 flex flex-wrap items-center justify-between gap-3 text-sm">
-            <BackLink href={`/report/${propertyId}`}>Report</BackLink>
-            <Link
-              href={`/scan?propertyId=${propertyId}`}
-              className="rounded-full bg-emerald-400 px-4 py-2 text-xs font-semibold text-black"
-            >
-              Add the next photo
-            </Link>
-          </div>
         </>
       )}
     </main>

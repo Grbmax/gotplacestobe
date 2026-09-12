@@ -123,12 +123,6 @@ export default function ReportPage() {
           >
             Export PDF
           </button>
-          <Link
-            href={`/scan?propertyId=${propertyId}`}
-            className="rounded-full bg-emerald-400 px-3 py-1.5 text-xs font-semibold text-black"
-          >
-            Add the next photo
-          </Link>
         </div>
       </div>
 
@@ -141,14 +135,13 @@ export default function ReportPage() {
           {scans.length} {scans.length === 1 ? "move-in photo" : "move-in photos"}
         </p>
       </div>
-      <p className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs print:hidden">
-        <Link href={`/scan?propertyId=${propertyId}`} className="text-emerald-400 underline underline-offset-4">
-          Camera
-        </Link>
-        <Link href={`/optimize/${propertyId}`} className="text-zinc-400 underline underline-offset-4">
-          Guided vs. naive
-        </Link>
-      </p>
+
+      <Link
+        href={`/scan?propertyId=${propertyId}`}
+        className="mt-5 block rounded-full bg-emerald-400 py-4 text-center text-lg font-semibold text-black print:hidden"
+      >
+        Add photo
+      </Link>
 
       {(() => {
         const summary = guidedVsNaiveSummary(scans);
@@ -228,12 +221,6 @@ export default function ReportPage() {
             <p className="mt-1 text-xs leading-relaxed text-zinc-400">
               Point the camera at paint, vents, and wet spots. County lead and housing records stay in the banner above.
             </p>
-            <Link
-              href={`/scan?propertyId=${propertyId}`}
-              className="mt-4 inline-flex rounded-full bg-emerald-400 px-4 py-2 text-sm font-semibold text-black"
-            >
-              Open camera
-            </Link>
           </div>
         )}
         {groups.map((g) => {

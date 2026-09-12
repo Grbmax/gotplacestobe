@@ -172,8 +172,8 @@ export default function ScanPage() {
 
       <div className="pointer-events-none absolute inset-x-0 top-0 z-20 space-y-3 p-4">
         <div className="pointer-events-auto flex items-center justify-between gap-2">
-          <BackLink href="/" tone="overlay">
-            Houses
+          <BackLink href={propertyId ? `/report/${propertyId}` : "/"} tone="overlay">
+            {propertyId ? "Report" : "Houses"}
           </BackLink>
           <div className="flex items-center gap-2">
             {ghostUrl && !resultScan && (
@@ -185,18 +185,10 @@ export default function ScanPage() {
                 {ghostOn ? "Hide last photo" : "Show last photo"}
               </button>
             )}
-            {propertyId && (
-              <Link
-                href={`/report/${propertyId}`}
-                className="rounded-full bg-black/55 px-3 py-1.5 text-xs text-zinc-200"
-              >
-                Report
-              </Link>
-            )}
           </div>
         </div>
         {!resultScan && (
-          <div className="pointer-events-auto">
+          <div className="pointer-events-auto space-y-2">
             <SurfacePrompt
               room={room}
               surface={surface}
@@ -205,10 +197,72 @@ export default function ScanPage() {
               covered={coverageFromScans(pastScans).length}
               total={KNOWN_SURFACES.length}
             />
+            {!pickSurface ? (
+              <button
+                type="button"
+                onClick={() => setPickSurface(true)}
+                className="w-full rounded-2xl bg-black/55 py-2 text-center text-xs text-zinc-300 backdrop-blur"
+              >
+                Different surface
+              </button>
+            ) : (
+              <div className="space-y-2 rounded-2xl bg-black/55 p-2 backdrop-blur">
+                <div className="grid grid-cols-3 gap-2">
+                  <select
+                    value={propertyId}
+                    onChange={(e) => setPropertyId(e.target.value)}
+                    className="rounded-xl border border-zinc-700 bg-zinc-950/90 px-2 py-2 text-xs"
+                  >
+                    {scannableProperties.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.label}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={room}
+                    onChange={(e) => {
+                      setRoom(e.target.value);
+                      const next = KNOWN_SURFACES.find((s) => s.room === e.target.value);
+                      if (next) setSurface(next.surface);
+                    }}
+                    className="rounded-xl border border-zinc-700 bg-zinc-950/90 px-2 py-2 text-xs"
+                  >
+                    {rooms.map((r) => (
+                      <option key={r} value={r}>
+                        {roomLabel(r)}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={surface}
+                    onChange={(e) => setSurface(e.target.value)}
+                    className="rounded-xl border border-zinc-700 bg-zinc-950/90 px-2 py-2 text-xs"
+                  >
+                    {surfaces.map((s) => (
+                      <option key={s} value={s}>
+                        {surfaceLabel(s)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    applyPlanner(pastScans, house);
+                    setPickSurface(false);
+                  }}
+                  className="w-full text-center text-xs text-zinc-300 underline underline-offset-4"
+                >
+                  Use the recommended surface
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
 
+      {(resultScan || error) && (
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black via-black/80 to-transparent p-4 pb-6 pt-16">
         <div className="pointer-events-auto space-y-3">
           {resultScan && (
@@ -235,75 +289,10 @@ export default function ScanPage() {
             </div>
           )}
 
-          {!resultScan && (
-            <div className="space-y-2">
-              {!pickSurface ? (
-                <button
-                  type="button"
-                  onClick={() => setPickSurface(true)}
-                  className="w-full text-center text-xs text-zinc-400 underline underline-offset-4"
-                >
-                  Different surface
-                </button>
-              ) : (
-                <div className="space-y-2">
-                  <div className="grid grid-cols-3 gap-2">
-                    <select
-                      value={propertyId}
-                      onChange={(e) => setPropertyId(e.target.value)}
-                      className="rounded-xl border border-zinc-700 bg-zinc-950/90 px-2 py-2 text-xs"
-                    >
-                      {scannableProperties.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.label}
-                        </option>
-                      ))}
-                    </select>
-                    <select
-                      value={room}
-                      onChange={(e) => {
-                        setRoom(e.target.value);
-                        const next = KNOWN_SURFACES.find((s) => s.room === e.target.value);
-                        if (next) setSurface(next.surface);
-                      }}
-                      className="rounded-xl border border-zinc-700 bg-zinc-950/90 px-2 py-2 text-xs"
-                    >
-                      {rooms.map((r) => (
-                        <option key={r} value={r}>
-                          {roomLabel(r)}
-                        </option>
-                      ))}
-                    </select>
-                    <select
-                      value={surface}
-                      onChange={(e) => setSurface(e.target.value)}
-                      className="rounded-xl border border-zinc-700 bg-zinc-950/90 px-2 py-2 text-xs"
-                    >
-                      {surfaces.map((s) => (
-                        <option key={s} value={s}>
-                          {surfaceLabel(s)}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      applyPlanner(pastScans, house);
-                      setPickSurface(false);
-                    }}
-                    className="w-full text-center text-xs text-zinc-400 underline underline-offset-4"
-                  >
-                    Use the recommended surface
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-
           {error && <p className="text-center text-xs text-rose-400">{error}</p>}
         </div>
       </div>
+      )}
     </main>
   );
 }

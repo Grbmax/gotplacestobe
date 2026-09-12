@@ -119,10 +119,9 @@ export default function HomePage() {
   }, [rows, showAll, identity.id]);
 
   const hiddenCount = rows ? rows.length - visible.length : 0;
-  const walkProperty = visible.find((row) => !isDemoHouse(row.property))?.property;
 
   return (
-    <main className="mx-auto min-h-dvh max-w-md px-5 pb-28 pt-8 text-white">
+    <main className="mx-auto min-h-dvh max-w-md px-5 pb-16 pt-8 text-white">
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-[11px] uppercase tracking-[0.28em] text-emerald-400">SCAN</p>
@@ -191,7 +190,7 @@ export default function HomePage() {
       ) : visible.length === 0 ? (
         <div className="mt-10 rounded-2xl border border-dashed border-zinc-800 p-6 text-center">
           <p className="text-sm text-zinc-400">No properties yet.</p>
-          <p className="mt-1 text-xs text-zinc-500">Add one above, or open the scanner to see a sample report.</p>
+          <p className="mt-1 text-xs text-zinc-500">Add one above, or open the demo report when it appears.</p>
         </div>
       ) : (
         <ul className="mt-8 space-y-3">
@@ -233,16 +232,6 @@ export default function HomePage() {
                     </p>
                     {!isDemoHouse(property) && <CityContextCard context={property.cityContext} compact />}
                   </Link>
-                  {!isDemoHouse(property) && (
-                    <div className="px-4 pb-4">
-                      <Link
-                        href={`/scan?propertyId=${property.id}`}
-                        className="block rounded-full bg-emerald-400 py-2.5 text-center text-xs font-semibold text-black"
-                      >
-                        Continue walkthrough
-                      </Link>
-                    </div>
-                  )}
                 </div>
               </li>
             );
@@ -268,17 +257,6 @@ export default function HomePage() {
           Show only mine
         </button>
       )}
-
-      <div className="fixed inset-x-0 bottom-0 z-20 border-t border-zinc-800 bg-zinc-950/95 p-4 backdrop-blur">
-        <div className="mx-auto max-w-md">
-          <Link
-            href={walkProperty ? `/scan?propertyId=${walkProperty.id}` : "/scan"}
-            className="block rounded-full bg-emerald-400 py-4 text-center text-sm font-semibold text-black"
-          >
-            {walkProperty ? "Continue walkthrough" : "Open camera"}
-          </Link>
-        </div>
-      </div>
     </main>
   );
 }
