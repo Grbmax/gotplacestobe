@@ -436,6 +436,18 @@ export async function createWalk(input: {
   return { walk, property };
 }
 
+export async function closeAllWalks(
+  propertyId: string,
+): Promise<{ property: Property } | { error: string }> {
+  const property = await getProperty(propertyId);
+  if (!property) return { error: "Unknown property" };
+  if (property.id === SAMPLE_PROPERTY_ID) return { error: "Sample house is read-only" };
+  const now = new Date().toISOString();
+  property.walks = (property.walks ?? []).map((w) => (w.closedAt ? w : { ...w, closedAt: now }));
+  await patchProperty(property.id, { walks: property.walks });
+  return { property };
+}
+
 export async function refreshPropertyCity(propertyId: string): Promise<Property | null> {
   const existing = await getProperty(propertyId);
   if (!existing) return null;

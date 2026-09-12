@@ -19,6 +19,18 @@ export function openWalk(walks: Walk[]) {
   return open.sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0] ?? null;
 }
 
+export type WalkPhase = "start_move_in" | "continue_move_in" | "continue_mid" | "continue_exit" | "all_closed";
+
+export function walkPhase(walks: Walk[]): WalkPhase {
+  const list = walks ?? [];
+  const current = openWalk(list);
+  if (list.length > 0 && !current) return "all_closed";
+  if (current?.kind === "exit") return "continue_exit";
+  if (current?.kind === "mid") return "continue_mid";
+  if (current?.kind === "move_in") return "continue_move_in";
+  return "start_move_in";
+}
+
 export function suggestedWalkKind(walks: Walk[]): WalkKind {
   const kinds = new Set(walks.map((w) => w.kind));
   if (!kinds.has("move_in")) return "move_in";

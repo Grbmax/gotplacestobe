@@ -7,7 +7,7 @@ import { DetectorBadge } from "@/components/DetectorBadge";
 import { HouseSelect } from "@/components/HouseSelect";
 import { SurfacePrompt } from "@/components/SurfacePrompt";
 import { Viewfinder } from "@/components/Viewfinder";
-import { lastHouse, lastWalk, rememberHouse, rememberWalk } from "@/lib/activeHouse";
+import { lastHouse, rememberHouse, rememberWalk } from "@/lib/activeHouse";
 import { ScanWalkPicker } from "@/components/ScanWalkPicker";
 import { useIdentity } from "@/lib/IdentityContext";
 import {
@@ -124,6 +124,22 @@ function ScanFlow() {
     }
   }
 
+  async function closeAllWalks() {
+    if (!propertyId) return;
+    setWalkBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/properties/${propertyId}/walks`, { method: "PATCH" });
+      const data = (await res.json()) as { property?: Property; error?: string };
+      if (!res.ok || !data.property) throw new Error(data.error ?? "Could not close records");
+      setProperties((prev) => (prev ?? []).map((p) => (p.id === data.property!.id ? data.property! : p)));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not close records");
+    } finally {
+      setWalkBusy(false);
+    }
+  }
+
   useEffect(() => {
     if (!propertyId) {
       setPastScans([]);
@@ -224,10 +240,11 @@ function ScanFlow() {
         )}
         <ScanWalkPicker
           house={house}
-          lastWalkId={lastWalk(house.id)}
           busy={walkBusy}
           onContinue={(item) => attachWalk(item.id)}
           onCreate={startWalk}
+          onCloseAll={() => void closeAllWalks()}
+          onCheckReport={() => router.push(`/report/${house.id}`)}
         />
       </>
     );
