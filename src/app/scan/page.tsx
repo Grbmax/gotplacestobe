@@ -101,6 +101,7 @@ export default function ScanPage() {
           analyzing={analyzing}
           frozenUrl={frozenUrl}
           resultDetections={resultDets}
+          resultDetector={resultScan?.detector ?? null}
         />
       </div>
 
