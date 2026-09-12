@@ -271,7 +271,9 @@ export default function ScanPage() {
                 resultScan.degraded ? "border-2 border-rose-500 bg-rose-950/40" : "bg-zinc-900/95"
               }`}
             >
-              {(resultScan.detector === "mock" || resultScan.isSample || resultScan.degraded) && (
+              {(resultScan.detector !== "gemini" ||
+                resultScan.isSample ||
+                resultScan.degraded) && (
                 <div className="mb-2">
                   <DetectorBadge
                     detector={resultScan.detector}
@@ -281,6 +283,19 @@ export default function ScanPage() {
                 </div>
               )}
               <p className="text-sm leading-relaxed">{resultScan.finding}</p>
+              {resultScan.imagineUrl && !resultScan.degraded && (
+                <figure className="mt-3 overflow-hidden rounded-xl border border-violet-400/30">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={resultScan.imagineUrl}
+                    alt="Educational illustration of untreated progression"
+                    className="aspect-video w-full object-cover"
+                  />
+                  <figcaption className="bg-violet-950/50 px-3 py-2 text-[10px] uppercase tracking-wider text-violet-200">
+                    Grok Imagine · educational still — not a photo of this unit
+                  </figcaption>
+                </figure>
+              )}
               {!resultScan.degraded && (
                 <p className={`mt-2 text-xs ${severityTextClass(severityFromRatio(resultScan.totalAffectedRatio))}`}>
                   {thisFrameFlaggedCopy(resultScan.totalAffectedRatio)}

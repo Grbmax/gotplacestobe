@@ -180,6 +180,7 @@ function asScan(doc: ScanDoc): Scan {
     scannedByName: doc.scannedByName,
     escalations: doc.escalations,
     degraded: doc.degraded,
+    imagineUrl: doc.imagineUrl,
   };
 }
 
@@ -460,6 +461,23 @@ export async function createScan(input: {
   const persisted = await persistImage(input.image, scanId);
   const imageUrl = persisted.startsWith("data:") ? `/api/scans/${scanId}/image` : persisted;
 
+  // Grok Imagine enrichment — educational still only; never blocks the scan if it fails.
+  let imagineUrl: string | undefined;
+  if (!detected.degraded && detected.detections.length) {
+    try {
+      const { imagineProgressionStill } = await import("./grok");
+      const url = await imagineProgressionStill({
+        finding: detected.finding,
+        room,
+        surface,
+        classes: [...new Set(detected.detections.map((d) => d.cls.replace(/_/g, " ")))],
+      });
+      if (url) imagineUrl = url;
+    } catch (err) {
+      console.error("[scan] Grok Imagine skipped", err);
+    }
+  }
+
   const scan: Scan = {
     id: scanId,
     propertyId: input.propertyId,
@@ -475,6 +493,7 @@ export async function createScan(input: {
     escalations: civic.escalations.length ? civic.escalations : undefined,
     scannedBy: input.scannedBy,
     scannedByName: input.scannedByName,
+    imagineUrl,
   };
 
   if (!hasMongo()) {

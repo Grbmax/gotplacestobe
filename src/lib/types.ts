@@ -148,13 +148,22 @@ export type Scan = {
   detections: Detection[];
   totalAffectedRatio: number;
   finding: string;
-  detector: "gemini" | "mock" | "gemini+roboflow" | "roboflow";
+  detector:
+    | "gemini"
+    | "grok"
+    | "roboflow"
+    | "gemini+roboflow"
+    | "grok+roboflow"
+    | "ensemble"
+    | "mock";
   review?: Review;
   isSample?: boolean;
   scannedBy?: string;
   scannedByName?: string;
   escalations?: Escalation[];
-  /** True when this reading is a mock fallback caused by a real Gemini failure (quota, rate limit, error) — never a genuine "clean" result. */
+  /** Educational Grok Imagine still — never a photo of this unit. */
+  imagineUrl?: string;
+  /** True when this reading is a mock fallback caused by a real detector outage — never a genuine "clean" result. */
   degraded?: boolean;
 };
 

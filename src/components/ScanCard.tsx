@@ -23,6 +23,15 @@ export function ScanCard({ scan, onSelect, onDelete }: Props) {
           <DetectorBadge detector={scan.detector} sample={scan.isSample} degraded={scan.degraded} />
         </div>
         <p className="mt-1 line-clamp-2 text-xs text-zinc-400">{scan.finding}</p>
+        {scan.imagineUrl ? (
+          <figure className="mt-2 overflow-hidden rounded-xl border border-violet-400/25">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={scan.imagineUrl} alt="" className="aspect-video w-full object-cover opacity-95" />
+            <figcaption className="bg-violet-950/40 px-2 py-1 text-[9px] uppercase tracking-wider text-violet-200/90">
+              Grok Imagine · educational — not this unit
+            </figcaption>
+          </figure>
+        ) : null}
         {cites.length ? (
           <ul className="mt-2 space-y-1">
             {cites.map((c) => (
