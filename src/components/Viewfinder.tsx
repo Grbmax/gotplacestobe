@@ -116,14 +116,39 @@ export function Viewfinder({
   }
 
   async function onUploadFile(file: File | undefined) {
-    if (!file || !file.type.startsWith("image/")) return;
+    if (!file) return;
+    const looksImage =
+      file.type.startsWith("image/") || /\.(jpe?g|png|webp|gif|heic|heif)$/i.test(file.name);
+    if (!looksImage) {
+      setError("Please choose a photo (JPEG, PNG, or WebP).");
+      return;
+    }
     setError(null);
-    const bitmap = await createImageBitmap(file);
     try {
-      const dataUrl = toJpegDataUrl(bitmap, bitmap.width, bitmap.height);
-      if (dataUrl) onCapture(dataUrl);
-    } finally {
-      bitmap.close();
+      let dataUrl: string | null = null;
+      try {
+        const bitmap = await createImageBitmap(file);
+        try {
+          dataUrl = toJpegDataUrl(bitmap, bitmap.width, bitmap.height);
+        } finally {
+          bitmap.close();
+        }
+      } catch {
+        // HEIC / odd formats: fall back to FileReader (may still fail in some browsers).
+        dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result));
+          reader.onerror = () => reject(new Error("read failed"));
+          reader.readAsDataURL(file);
+        });
+        if (!dataUrl.startsWith("data:image/")) {
+          throw new Error("unsupported");
+        }
+      }
+      if (!dataUrl) throw new Error("empty");
+      onCapture(dataUrl);
+    } catch {
+      setError("Could not read that image. Try a JPEG or PNG export.");
     }
   }
 
@@ -135,7 +160,7 @@ export function Viewfinder({
       <input
         ref={fileRef}
         type="file"
-        accept="image/*"
+        accept="image/*,.heic,.heif"
         className="hidden"
         onChange={(e) => {
           const file = e.target.files?.[0];

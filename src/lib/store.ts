@@ -143,13 +143,19 @@ function asProperty(doc: PropertyDoc): Property {
   };
 }
 
+/** Inline data URLs break <img> / list payloads once photos get large — serve via API. */
+function clientImageUrl(scanId: string, imageUrl: string): string {
+  if (imageUrl.startsWith("data:")) return `/api/scans/${scanId}/image`;
+  return imageUrl;
+}
+
 function asScan(doc: ScanDoc): Scan {
   return {
     id: doc._id,
     propertyId: doc.propertyId,
     room: doc.room,
     surface: doc.surface,
-    imageUrl: doc.imageUrl,
+    imageUrl: clientImageUrl(doc._id, doc.imageUrl),
     capturedAt: doc.capturedAt,
     detections: doc.detections,
     totalAffectedRatio: doc.totalAffectedRatio,
@@ -215,7 +221,8 @@ export async function listScans(filter: {
         if (filter.surface && s.surface !== filter.surface) return false;
         return true;
       })
-      .sort((a, b) => b.capturedAt.localeCompare(a.capturedAt));
+      .sort((a, b) => b.capturedAt.localeCompare(a.capturedAt))
+      .map((s) => ({ ...s, imageUrl: clientImageUrl(s.id, s.imageUrl) }));
   }
   const db = await getDb();
   const q: Record<string, string> = {};
@@ -228,10 +235,42 @@ export async function listScans(filter: {
 
 export async function getScan(id: string): Promise<Scan | null> {
   await ensureSeed();
-  if (!hasMongo()) return mem.scans.find((s) => s.id === id) ?? null;
+  if (!hasMongo()) {
+    const scan = mem.scans.find((s) => s.id === id) ?? null;
+    return scan ? { ...scan, imageUrl: clientImageUrl(scan.id, scan.imageUrl) } : null;
+  }
   const db = await getDb();
   const doc = await db.collection<ScanDoc>("scans").findOne({ _id: id });
   return doc ? asScan(doc) : null;
+}
+
+/** Raw image bytes/URL for <img src="/api/scans/:id/image"> — keeps list JSON small. */
+export async function getScanImage(
+  id: string,
+): Promise<{ kind: "url"; url: string } | { kind: "bytes"; contentType: string; bytes: Buffer } | null> {
+  await ensureSeed();
+  let imageUrl: string | undefined;
+  if (!hasMongo()) {
+    imageUrl = mem.scans.find((s) => s.id === id)?.imageUrl;
+  } else {
+    const db = await getDb();
+    const doc = await db.collection<ScanDoc>("scans").findOne(
+      { _id: id },
+      { projection: { imageUrl: 1 } },
+    );
+    imageUrl = doc?.imageUrl;
+  }
+  if (!imageUrl) return null;
+  if (imageUrl.startsWith("http://") || imageUrl.startsWith("https://")) {
+    return { kind: "url", url: imageUrl };
+  }
+  const match = /^data:(image\/[\w+.-]+);base64,(.+)$/i.exec(imageUrl);
+  if (!match) return null;
+  return {
+    kind: "bytes",
+    contentType: match[1]!,
+    bytes: Buffer.from(match[2]!, "base64"),
+  };
 }
 
 export async function createScan(input: {
@@ -270,12 +309,12 @@ export async function createScan(input: {
 
   if (!hasMongo()) {
     mem.scans.unshift(scan);
-    return { scan };
+    return { scan: { ...scan, imageUrl: clientImageUrl(scan.id, scan.imageUrl) } };
   }
   const db = await getDb();
   const { id: scanId, ...rest } = scan;
   await db.collection<ScanDoc>("scans").insertOne({ _id: scanId, ...rest });
-  return { scan };
+  return { scan: { ...scan, imageUrl: clientImageUrl(scan.id, scan.imageUrl) } };
 }
 
 async function getProperty(propertyId: string): Promise<Property | null> {
