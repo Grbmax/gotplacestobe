@@ -3,15 +3,14 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { apiCreateQuest, apiCreateSession } from "@/lib/api";
-import { KARMA_COST, ZONES } from "@/lib/data";
+import { KARMA_COST, zoneById } from "@/lib/data";
 import { loadSession, saveSession } from "@/lib/session";
-import type { Session, Urgency, ZoneId } from "@/lib/types";
+import type { Session, Urgency } from "@/lib/types";
 
 export default function CreatePage() {
   const router = useRouter();
   const [session, setSession] = useState<Session | null>(null);
-  const [title, setTitle] = useState("Need a charger walk from Hunt");
-  const [zone, setZone] = useState<ZoneId>("hunt");
+  const [title, setTitle] = useState("Need a charger walk from the library");
   const [urgency, setUrgency] = useState<Urgency>("urgent");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -23,7 +22,6 @@ export default function CreatePage() {
       return;
     }
     setSession(s);
-    setZone(s.zone);
   }, [router]);
 
   const cost = KARMA_COST[urgency];
@@ -35,6 +33,7 @@ export default function CreatePage() {
     if (!s) return;
     setBusy(true);
     setError(null);
+    const zone = s.zone;
     try {
       let user = s;
       try {
@@ -55,7 +54,7 @@ export default function CreatePage() {
         const created = await apiCreateQuest({
           userId: user.id,
           title,
-          zone,
+          zone: user.zone,
           urgency,
         });
         saveSession(created.user);
@@ -88,20 +87,10 @@ export default function CreatePage() {
           className="mt-2 rounded-2xl border border-ink/10 bg-white p-4 text-lg outline-none"
         />
 
-        <p className="mt-6 text-xs uppercase tracking-[0.18em] text-ink/45">Where it needs doing</p>
-        <div className="mt-2 flex flex-wrap gap-2">
-          {ZONES.map((z) => (
-            <button
-              type="button"
-              key={z.id}
-              onClick={() => setZone(z.id)}
-              className={`rounded-full px-3 py-2 text-sm ${
-                zone === z.id ? "bg-ink text-leaf" : "bg-ink/5"
-              }`}
-            >
-              {z.short}
-            </button>
-          ))}
+        <div className="mt-6 rounded-2xl bg-ink/5 px-4 py-3">
+          <p className="text-xs uppercase tracking-[0.18em] text-ink/45">Where it needs doing</p>
+          <p className="mt-1 text-sm font-medium">{zoneById(session.zone).name}</p>
+          <p className="mt-0.5 text-xs text-ink/45">Pinned to your auto-detected zone</p>
         </div>
 
         <p className="mt-6 text-xs uppercase tracking-[0.18em] text-ink/45">Urgency</p>

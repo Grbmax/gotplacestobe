@@ -3,13 +3,13 @@ import Link from "next/link";
 const steps = [
   {
     n: "01",
-    title: "Drop a name and a zone",
-    copy: "No login for the demo. You’re in the building, that’s identity enough.",
+    title: "Drop a name — location locks in",
+    copy: "No login for the demo. Live GPS places you anywhere; nearby spots spawn around you.",
   },
   {
     n: "02",
-    title: "See who’s actually nearby",
-    copy: "The map is zones, not GPS. Pings land on Hunt, Gates, Tepper — not 400 meters of indoor noise.",
+    title: "See favors near you",
+    copy: "The live map drops pins on synthetic places around your real location — café, library, park, gym.",
   },
   {
     n: "03",
@@ -39,7 +39,7 @@ export default function LandingPage() {
       <section className="mx-auto grid max-w-6xl items-center gap-12 px-6 pb-20 pt-6 lg:grid-cols-[1.15fr_0.85fr]">
         <div>
           <p className="text-xs uppercase tracking-[0.28em] text-ink/50">
-            campus · right now · not later
+            near you · right now · not later
           </p>
           <h1 className="serif mt-4 max-w-[14ch] text-5xl leading-[0.95] sm:text-7xl">
             Get small things done for each other, right now.
@@ -53,7 +53,7 @@ export default function LandingPage() {
               href="/join"
               className="rounded-full bg-leaf px-6 py-3 text-sm font-semibold text-ink"
             >
-              Join this building
+              Join nearby
             </Link>
             <a href="#flow" className="rounded-full border border-ink/20 px-6 py-3 text-sm">
               See the flow
@@ -77,7 +77,7 @@ export default function LandingPage() {
 
         <div className="relative mx-auto w-full max-w-[340px]">
           <div className="absolute -left-10 top-16 hidden rotate-[-8deg] rounded-2xl bg-ink px-4 py-3 text-xs text-leaf sm:block">
-            2 pings · Hunt & Gates
+            2 pings · near you
           </div>
           <div className="absolute -right-8 bottom-28 hidden rotate-[6deg] rounded-2xl bg-gold px-4 py-3 text-xs text-ink sm:block">
             +30 karma
@@ -153,7 +153,7 @@ function PhonePreview() {
     <div className="float-card overflow-hidden rounded-[2.4rem] border-8 border-ink bg-moss shadow-2xl">
       <div className="flex items-center justify-between px-4 pt-3 text-[10px] uppercase tracking-[0.2em] text-paper/50">
         <span>Quest</span>
-        <span className="text-live">live · Tepper 2</span>
+        <span className="text-live">live GPS</span>
         <span className="text-gold">100 k</span>
       </div>
       <div className="relative mx-3 mt-3 h-56 overflow-hidden rounded-2xl map-grid">
@@ -165,7 +165,7 @@ function PhonePreview() {
         </div>
         <div className="absolute left-[78%] top-[46%] h-4 w-4 rounded-full border-2 border-ink bg-live" />
         <div className="absolute bottom-2 left-2 right-2 flex gap-1 overflow-hidden">
-          {["Hunt · charger", "Gates · hold table", "Cut · HDMI"].map((label) => (
+          {["Library · charger", "Café · hold table", "Park · dog walk"].map((label) => (
             <span
               key={label}
               className="shrink-0 rounded-full bg-ink/70 px-2 py-1 text-[9px] text-paper"
@@ -176,8 +176,8 @@ function PhonePreview() {
         </div>
       </div>
       <div className="m-3 rounded-2xl bg-paper p-3 text-ink">
-        <p className="text-[9px] uppercase tracking-[0.18em] text-ink/45">Hunt · 8 min · urgent</p>
-        <p className="serif mt-1 text-lg leading-tight">Grab my charger from Hunt 2nd floor desk</p>
+        <p className="text-[9px] uppercase tracking-[0.18em] text-ink/45">Library · 5 min · urgent</p>
+        <p className="serif mt-1 text-lg leading-tight">Grab my charger from the library desk</p>
         <p className="mt-2 inline-block rounded-full bg-ink px-2 py-0.5 text-[11px] text-gold">+30 karma</p>
         <div className="mt-3 flex gap-2">
           <span className="flex-1 rounded-full border border-ink/15 py-2 text-center text-[11px]">Skip</span>

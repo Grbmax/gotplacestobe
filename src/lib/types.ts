@@ -1,4 +1,4 @@
-export type ZoneId = "tepper-2f" | "tepper-3f" | "gates-4f" | "hunt" | "outside";
+export type ZoneId = "plaza" | "cafe" | "library" | "park" | "gym";
 export type Urgency = "low" | "medium" | "urgent";
 export type QuestStatus = "OPEN" | "CLAIMED" | "PENDING" | "CONFIRMED";
 
@@ -21,6 +21,9 @@ export type Quest = {
   title: string;
   detail: string;
   zone: ZoneId;
+  /** Pin on the live map (synthetic or GPS). Falls back to zone center. */
+  lat?: number;
+  lng?: number;
   urgency: Urgency;
   baseKarma: number;
   bonusKarma: number;
@@ -28,6 +31,16 @@ export type Quest = {
   createdAt: string;
   updatedAt: number;
   claimedAt?: number;
+};
+
+export type CampusRoute = {
+  label: string;
+  path: LatLng[];
+  /** Synthetic zone path (optional when using real addresses). */
+  from?: ZoneId;
+  to?: ZoneId;
+  zones?: ZoneId[];
+  destination?: LatLng;
 };
 
 export type ScoredQuest = Quest & {

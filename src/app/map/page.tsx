@@ -15,20 +15,36 @@ import {
   apiConfirmQuest,
   apiCreateQuest,
   apiCreateSession,
-  apiListQuests,
   apiMarkDone,
   apiMe,
 } from "@/lib/api";
-import { CLAIM_MS, MOCK_QUESTS, rankedFeed, zoneById } from "@/lib/data";
-import { isOnCampus } from "@/lib/geo";
+import {
+  CLAIM_MS,
+  MOCK_QUESTS,
+  PLACE_EXAMPLES,
+  ROUTE_EXAMPLES,
+  ZONE_IDS,
+  anchorWorld,
+  buildRoute,
+  favorsOnRoute,
+  parseRouteQuery,
+  rankedFeed,
+  zoneById,
+} from "@/lib/data";
+import { favorsNearPath, nearestZone } from "@/lib/geo";
+import { fetchWalkingPath, searchPlaces, type PlaceSuggestion } from "@/lib/places";
 import { loadSession, saveSession } from "@/lib/session";
-import type { LatLng, Quest, Session, Transaction, Urgency, ZoneId } from "@/lib/types";
+import type { CampusRoute, LatLng, Quest, Session, Transaction, Urgency, ZoneId } from "@/lib/types";
 
 const seedTx: Transaction[] = [
   { id: "t1", label: "Confirmed · charger walk", amount: 30, when: "Today 01:12" },
   { id: "t2", label: "Posted · HDMI swap", amount: -20, when: "Today 00:48" },
   { id: "t3", label: "Confirmed · hold table", amount: 25, when: "Thu 23:10" },
 ];
+
+function normalizeZone(zone: string): ZoneId {
+  return ZONE_IDS.includes(zone as ZoneId) ? (zone as ZoneId) : "plaza";
+}
 
 function remainingMs(quest: Quest | null, now: number) {
   if (!quest?.claimedAt || quest.status !== "CLAIMED") return 0;
@@ -43,13 +59,21 @@ export default function MapPage() {
   const [index, setIndex] = useState(0);
   const [flash, setFlash] = useState<string | null>(null);
   const [live, setLive] = useState(false);
-  const [snapped, setSnapped] = useState(false);
   const [youPos, setYouPos] = useState<LatLng | null>(null);
+  const [worldKey, setWorldKey] = useState(0);
+  const [routeQuery, setRouteQuery] = useState("");
+  const [route, setRoute] = useState<CampusRoute | null>(null);
+  const [routeError, setRouteError] = useState<string | null>(null);
+  const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchBusy, setSearchBusy] = useState(false);
   const [tab, setTab] = useState<AppTab>("map");
   const [postBusy, setPostBusy] = useState(false);
   const [postError, setPostError] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
   const autoReleaseRef = useRef<string | null>(null);
+  const anchored = useRef(false);
+  const searchAbort = useRef<AbortController | null>(null);
 
   useEffect(() => {
     const existing = loadSession();
@@ -58,13 +82,19 @@ export default function MapPage() {
       return;
     }
 
+    existing.zone = normalizeZone(existing.zone);
+    saveSession(existing);
+
     let cancelled = false;
     (async () => {
       try {
         const me = await apiMe(existing.id);
         if (cancelled) return;
+        me.user.zone = normalizeZone(me.user.zone);
         saveSession(me.user);
         setSession(me.user);
+        setYouPos({ lat: zoneById(me.user.zone).lat, lng: zoneById(me.user.zone).lng });
+        setQuests(MOCK_QUESTS);
         if (me.transactions.length) setTx(me.transactions);
       } catch {
         try {
@@ -72,8 +102,14 @@ export default function MapPage() {
           if (cancelled) return;
           saveSession(created.user);
           setSession(created.user);
+          setYouPos({ lat: zoneById(created.user.zone).lat, lng: zoneById(created.user.zone).lng });
+          setQuests(MOCK_QUESTS);
         } catch {
-          if (!cancelled) setSession(existing);
+          if (!cancelled) {
+            setSession(existing);
+            setYouPos({ lat: zoneById(existing.zone).lat, lng: zoneById(existing.zone).lng });
+            setQuests(MOCK_QUESTS);
+          }
         }
       }
     })();
@@ -85,78 +121,56 @@ export default function MapPage() {
 
   useEffect(() => {
     if (!session) return;
-    const fallback = { lat: zoneById(session.zone).lat, lng: zoneById(session.zone).lng };
-    setYouPos((prev) => prev ?? fallback);
+    setYouPos((prev) => prev ?? { lat: zoneById(session.zone).lat, lng: zoneById(session.zone).lng });
 
     if (!navigator.geolocation) {
       setLive(false);
-      setSnapped(true);
-      setYouPos(fallback);
       return;
     }
 
-    let watchId: number | null = null;
-    navigator.geolocation.getCurrentPosition(
+    const watch = navigator.geolocation.watchPosition(
       (pos) => {
         const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-        if (!isOnCampus(coords)) {
-          setYouPos(fallback);
-          setSnapped(true);
-          setLive(false);
-          return;
-        }
         setYouPos(coords);
-        setSnapped(false);
         setLive(true);
-        watchId = navigator.geolocation.watchPosition(
-          (next) => {
-            const liveCoords = { lat: next.coords.latitude, lng: next.coords.longitude };
-            if (isOnCampus(liveCoords)) setYouPos(liveCoords);
-          },
-          () => undefined,
-          { enableHighAccuracy: true, maximumAge: 4000, timeout: 8000 },
-        );
+
+        if (!anchored.current) {
+          anchored.current = true;
+          const world = anchorWorld(coords);
+          setQuests(world.quests);
+          setWorldKey((k) => k + 1);
+          setRoute(null);
+        }
+
+        const zone = nearestZone(coords);
+        setSession((prev) => {
+          if (!prev || prev.zone === zone) return prev;
+          const next = { ...prev, zone };
+          saveSession(next);
+          return next;
+        });
       },
       () => {
-        setYouPos(fallback);
         setLive(false);
-        setSnapped(true);
       },
-      { enableHighAccuracy: true, timeout: 6000, maximumAge: 30_000 },
+      { enableHighAccuracy: true, maximumAge: 2000, timeout: 12_000 },
     );
 
-    return () => {
-      if (watchId != null) navigator.geolocation.clearWatch(watchId);
-    };
-  }, [session?.id, session?.zone]);
-
-  useEffect(() => {
-    if (!session) return;
-    let cancelled = false;
-
-    async function pull() {
-      try {
-        const data = await apiListQuests(session!.id);
-        if (!cancelled && data.quests.length) setQuests(data.quests);
-      } catch {
-        /* keep current board */
-      }
-    }
-
-    pull();
-    const t = setInterval(pull, 2000);
-    return () => {
-      cancelled = true;
-      clearInterval(t);
-    };
-  }, [session]);
+    return () => navigator.geolocation.clearWatch(watch);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.id]);
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 250);
     return () => clearInterval(t);
   }, []);
 
-  const feed = useMemo(() => (session ? rankedFeed(session, quests) : []), [session, quests]);
+  const ranked = useMemo(() => (session ? rankedFeed(session, quests) : []), [session, quests]);
+  const feed = useMemo(() => {
+    if (!route) return ranked;
+    if (route.zones?.length) return favorsOnRoute(ranked, route);
+    return favorsNearPath(ranked, route.path, 550);
+  }, [ranked, route]);
   const current = feed[index] ?? null;
   const next = feed[index + 1] ?? null;
   const myClaim = session
@@ -175,6 +189,10 @@ export default function MapPage() {
   const left = remainingMs(myClaim?.status === "CLAIMED" ? myClaim : null, now);
 
   useEffect(() => {
+    setIndex(0);
+  }, [route?.label, worldKey]);
+
+  useEffect(() => {
     if (index >= feed.length) setIndex(Math.max(0, feed.length - 1));
   }, [feed.length, index]);
 
@@ -189,6 +207,127 @@ export default function MapPage() {
     void release(active.id, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active?.id, active?.status, left]);
+
+  useEffect(() => {
+    const q = routeQuery.trim();
+    if (q.length < 2) {
+      setSuggestions([]);
+      setSearchBusy(false);
+      return;
+    }
+
+    // Zone-style routes don't need live autocomplete.
+    if (/\b(to|→|->)\b/i.test(q) && parseRouteQuery(q)) {
+      setSuggestions([]);
+      return;
+    }
+
+    setSearchBusy(true);
+    const handle = window.setTimeout(() => {
+      searchAbort.current?.abort();
+      const ctrl = new AbortController();
+      searchAbort.current = ctrl;
+      void searchPlaces(q, {
+        lat: youPos?.lat,
+        lng: youPos?.lng,
+        limit: 6,
+        signal: ctrl.signal,
+      })
+        .then((places) => {
+          setSuggestions(places);
+          setSearchOpen(true);
+          setSearchBusy(false);
+        })
+        .catch((err: unknown) => {
+          if (err instanceof DOMException && err.name === "AbortError") return;
+          setSuggestions([]);
+          setSearchBusy(false);
+        });
+    }, 280);
+
+    return () => {
+      window.clearTimeout(handle);
+      searchAbort.current?.abort();
+    };
+  }, [routeQuery, youPos?.lat, youPos?.lng]);
+
+  function clearSearch() {
+    setRouteQuery("");
+    setRoute(null);
+    setRouteError(null);
+    setSuggestions([]);
+    setSearchOpen(false);
+  }
+
+  async function selectPlace(place: PlaceSuggestion) {
+    if (!youPos) return;
+    setRouteQuery(place.label);
+    setSuggestions([]);
+    setSearchOpen(false);
+    setSearchBusy(true);
+    setRouteError(null);
+    try {
+      const path = await fetchWalkingPath(youPos, { lat: place.lat, lng: place.lng });
+      setRoute({
+        label: `You → ${place.label}`,
+        path,
+        destination: { lat: place.lat, lng: place.lng },
+      });
+    } catch {
+      setRoute({
+        label: `You → ${place.label}`,
+        path: [youPos, { lat: place.lat, lng: place.lng }],
+        destination: { lat: place.lat, lng: place.lng },
+      });
+    } finally {
+      setSearchBusy(false);
+    }
+  }
+
+  async function applyRoute(raw: string) {
+    const q = raw.trim();
+    setRouteQuery(q);
+    if (!q) {
+      clearSearch();
+      return;
+    }
+
+    const parsed = parseRouteQuery(q);
+    if (parsed) {
+      setRoute(buildRoute(parsed.from, parsed.to));
+      setRouteError(null);
+      setSuggestions([]);
+      setSearchOpen(false);
+      return;
+    }
+
+    setSearchBusy(true);
+    setRouteError(null);
+    try {
+      const places = await searchPlaces(q, {
+        lat: youPos?.lat,
+        lng: youPos?.lng,
+        limit: 6,
+      });
+      if (!places.length) {
+        setRoute(null);
+        setSuggestions([]);
+        setRouteError("No places found — try a fuller address or place name");
+        return;
+      }
+      setSuggestions(places);
+      setSearchOpen(true);
+      // If there's a clear top hit, go there; otherwise show the list.
+      if (places.length === 1 || places[0].label.toLowerCase().includes(q.toLowerCase())) {
+        await selectPlace(places[0]);
+      }
+    } catch {
+      setRoute(null);
+      setRouteError("Search failed — check your connection and try again");
+    } finally {
+      setSearchBusy(false);
+    }
+  }
 
   function skip() {
     setIndex((i) => i + 1);
@@ -309,7 +448,13 @@ export default function MapPage() {
     }
   }
 
-  if (!session || !youPos) return null;
+  if (!session || !youPos) {
+    return (
+      <main className="flex min-h-dvh items-center justify-center bg-ink text-paper">
+        <p className="text-sm text-paper/60">Loading your map…</p>
+      </main>
+    );
+  }
 
   const timerLabel =
     myClaim?.status === "CLAIMED" && left > 0
@@ -329,7 +474,7 @@ export default function MapPage() {
           <div className="rounded-full bg-ink/80 px-3 py-1.5 text-[11px]">
             <span className="inline-flex items-center gap-1 text-live">
               <span className="h-1.5 w-1.5 rounded-full bg-live" />
-              {live ? "live" : "zone"} · {zoneById(session.zone).short}
+              {live ? "live GPS" : "waiting GPS"} · {zoneById(session.zone).short}
             </span>
           </div>
           <button
@@ -345,7 +490,10 @@ export default function MapPage() {
           <CampusMap
             you={session.zone}
             youPos={youPos}
+            live={live}
+            worldKey={worldKey}
             quests={feed}
+            route={route}
             activeId={current?.id}
             onSelect={(id) => {
               const i = feed.findIndex((q) => q.id === id);
@@ -359,29 +507,106 @@ export default function MapPage() {
 
         {tab === "map" && (
           <>
-            <div className="absolute inset-x-0 top-14 z-20 flex gap-2 overflow-x-auto px-3 pb-2 [scrollbar-width:none]">
-              {feed.slice(0, 5).map((q) => (
+            <form
+              className="absolute inset-x-3 top-14 z-20"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void applyRoute(routeQuery);
+              }}
+            >
+              <div className="flex items-center gap-2 rounded-full bg-ink/85 px-3 py-2 shadow-lg backdrop-blur-sm">
+                <input
+                  value={routeQuery}
+                  onChange={(e) => {
+                    setRouteQuery(e.target.value);
+                    if (routeError) setRouteError(null);
+                    setSearchOpen(true);
+                  }}
+                  onFocus={() => setSearchOpen(true)}
+                  placeholder="Search places · Tepper School of Business"
+                  className="min-w-0 flex-1 bg-transparent text-sm text-paper outline-none placeholder:text-paper/35"
+                  aria-label="Search for a place or route"
+                  autoComplete="off"
+                />
+                {(route || routeQuery) && (
+                  <button
+                    type="button"
+                    onClick={clearSearch}
+                    className="shrink-0 text-[11px] uppercase tracking-wide text-paper/50"
+                  >
+                    Clear
+                  </button>
+                )}
                 <button
-                  key={q.id}
-                  type="button"
-                  onClick={() => setIndex(feed.findIndex((x) => x.id === q.id))}
-                  className={`shrink-0 rounded-full px-3 py-1.5 text-xs shadow ${
-                    current?.id === q.id ? "bg-leaf text-ink" : "bg-ink/80 text-paper"
-                  }`}
+                  type="submit"
+                  className="shrink-0 rounded-full bg-leaf px-3 py-1.5 text-[11px] font-semibold text-ink"
                 >
-                  {zoneById(q.zone).short} · +{q.baseKarma + q.bonusKarma}
+                  {searchBusy ? "…" : "Go"}
                 </button>
-              ))}
-            </div>
+              </div>
 
-            {snapped && (
-              <p className="absolute inset-x-3 top-[6.4rem] z-20 rounded-full bg-ink/75 px-3 py-1.5 text-center text-[11px] text-paper/70">
-                Off campus — pin stays on {zoneById(session.zone).short}
+              {searchOpen && suggestions.length > 0 && (
+                <ul className="mt-2 overflow-hidden rounded-2xl bg-ink/95 shadow-xl backdrop-blur-sm">
+                  {suggestions.map((place) => (
+                    <li key={place.id}>
+                      <button
+                        type="button"
+                        onClick={() => void selectPlace(place)}
+                        className="flex w-full flex-col gap-0.5 border-b border-paper/10 px-3 py-2.5 text-left last:border-b-0 hover:bg-paper/10"
+                      >
+                        <span className="text-sm text-paper">{place.label}</span>
+                        {place.subtitle ? (
+                          <span className="text-[11px] text-paper/45">{place.subtitle}</span>
+                        ) : null}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              {routeError && <p className="mt-1.5 px-2 text-[11px] text-urgent">{routeError}</p>}
+              {!route && !routeError && !suggestions.length && (
+                <div className="mt-2 flex gap-1.5 overflow-x-auto [scrollbar-width:none]">
+                  {PLACE_EXAMPLES.map((ex) => (
+                    <button
+                      key={ex}
+                      type="button"
+                      onClick={() => {
+                        setRouteQuery(ex);
+                        void applyRoute(ex);
+                      }}
+                      className="shrink-0 rounded-full bg-ink/70 px-2.5 py-1 text-[10px] text-paper/70"
+                    >
+                      {ex}
+                    </button>
+                  ))}
+                  {ROUTE_EXAMPLES.slice(0, 2).map((ex) => (
+                    <button
+                      key={ex}
+                      type="button"
+                      onClick={() => void applyRoute(ex)}
+                      className="shrink-0 rounded-full bg-ink/70 px-2.5 py-1 text-[10px] text-paper/70"
+                    >
+                      {ex}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {route && (
+                <p className="mt-1.5 px-2 text-[11px] text-leaf/90">
+                  {route.label} · {feed.length} favor{feed.length === 1 ? "" : "s"} nearby
+                </p>
+              )}
+            </form>
+
+            {!live && (
+              <p className="absolute inset-x-3 top-[7.6rem] z-20 rounded-full bg-ink/75 px-3 py-1.5 text-center text-[11px] text-paper/70">
+                Waiting for GPS — allow location to place your live pin
               </p>
             )}
 
             {flash && (
-              <div className="absolute inset-x-3 top-[6.5rem] z-30 rounded-2xl bg-leaf px-4 py-3 text-sm text-ink shadow-lg">
+              <div className="absolute inset-x-3 top-[7.8rem] z-30 rounded-2xl bg-leaf px-4 py-3 text-sm text-ink shadow-lg">
                 {flash}
               </div>
             )}
@@ -389,7 +614,9 @@ export default function MapPage() {
             <div className="pointer-events-none absolute inset-x-0 bottom-16 z-20 bg-gradient-to-t from-[#151c12] via-[#151c12]/90 to-transparent px-3 pb-2 pt-16">
               <div className="pointer-events-auto">
                 <SwipeDeck quest={current} next={next} onSkip={skip} onAccept={accept} />
-                <p className="mt-2 px-1 text-[11px] text-paper/45">Swipe right to take · left to skip</p>
+                <p className="mt-2 px-1 text-[11px] text-paper/45">
+                  {feed.length} favors · swipe · map follows
+                </p>
               </div>
             </div>
           </>
@@ -428,8 +655,8 @@ export default function MapPage() {
             tab={tab}
             hasActive={Boolean(myClaim || pendingMine)}
             remainingLabel={timerLabel}
-            onChange={(next) => {
-              if (next === "you") {
+            onChange={(nextTab) => {
+              if (nextTab === "you") {
                 void apiMe(session.id)
                   .then((me) => {
                     saveSession(me.user);
@@ -438,7 +665,7 @@ export default function MapPage() {
                   })
                   .catch(() => undefined);
               }
-              setTab(next);
+              setTab(nextTab);
             }}
           />
         </div>

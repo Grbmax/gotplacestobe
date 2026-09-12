@@ -1,4 +1,4 @@
-import { CLAIM_MS, KARMA_COST, MOCK_QUESTS } from "./data";
+import { CLAIM_MS, KARMA_COST, MOCK_QUESTS, zoneById } from "./data";
 import type { Quest, Session, Transaction, Urgency, ZoneId } from "./types";
 
 const quests: Quest[] = structuredClone(MOCK_QUESTS);
@@ -66,23 +66,28 @@ export function createQuest(input: {
   if (user.karma < total) return { error: "Not enough karma" as const };
 
   user.karma -= total;
+  const z = zoneById(input.zone);
+  const jitter = (seed: number) => ((seed % 17) - 8) * 0.00003;
+  const t = stamp();
   const quest: Quest = {
-    id: `q_${stamp()}`,
+    id: `q_${t}`,
     requesterId: user.id,
     requesterName: user.name,
     title: input.title.trim() || "Need a hand nearby",
     detail: `${input.title.trim() || "Need a hand nearby"} · posted from ${user.zone}. Only ${user.name} can confirm.`,
     zone: input.zone,
+    lat: z.lat + jitter(t),
+    lng: z.lng + jitter(t >> 2),
     urgency: input.urgency,
     baseKarma: cost.base,
     bonusKarma: cost.bonus,
     status: "OPEN",
     createdAt: "just now",
-    updatedAt: stamp(),
+    updatedAt: t,
   };
   quests.unshift(quest);
   const tx: Transaction = {
-    id: `tx_${stamp()}`,
+    id: `tx_${t}`,
     fromUserId: user.id,
     questId: quest.id,
     label: `Posted · ${quest.title}`,

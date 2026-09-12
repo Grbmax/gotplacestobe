@@ -29,13 +29,13 @@ export function QuickPost({ session, busy, error, onClose, onSubmit }: Props) {
       </header>
       <div className="flex-1 overflow-y-auto px-5 pb-6">
         <h1 className="serif mt-3 text-4xl leading-none">Ask for something small.</h1>
-        <p className="mt-2 text-sm text-ink/55">Lands on the map for people in this building. No extra screens.</p>
+        <p className="mt-2 text-sm text-ink/55">Lands on the live map near you. No extra screens.</p>
 
         <textarea
           autoFocus
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          placeholder="Grab my charger from Hunt…"
+          placeholder="Grab my charger from the library…"
           rows={3}
           className="mt-6 w-full rounded-2xl border border-ink/10 bg-white p-4 text-lg outline-none"
         />

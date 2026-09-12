@@ -1,5 +1,5 @@
-import { CAMPUS_CENTER } from "./data";
-import type { LatLng } from "./types";
+import { questPin, ZONES } from "./data";
+import type { LatLng, ScoredQuest, ZoneId } from "./types";
 
 function toRad(n: number) {
   return (n * Math.PI) / 180;
@@ -16,6 +16,25 @@ export function metersBetween(a: LatLng, b: LatLng) {
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
-export function isOnCampus(coords: LatLng) {
-  return metersBetween(coords, CAMPUS_CENTER) < 1600;
+/** Pick the nearest synthetic place around the user’s live position. */
+export function nearestZone(coords: LatLng): ZoneId {
+  let best: ZoneId = ZONES[0].id;
+  let bestDist = Infinity;
+  for (const z of ZONES) {
+    const d = metersBetween(coords, { lat: z.lat, lng: z.lng });
+    if (d < bestDist) {
+      bestDist = d;
+      best = z.id;
+    }
+  }
+  return best;
+}
+
+/** Keep favors that sit close to a real walking path / destination. */
+export function favorsNearPath(quests: ScoredQuest[], path: LatLng[], maxMeters = 500) {
+  if (!path.length) return quests;
+  return quests.filter((q) => {
+    const pin = questPin(q);
+    return path.some((p) => metersBetween(pin, p) <= maxMeters);
+  });
 }

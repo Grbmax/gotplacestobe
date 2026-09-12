@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { ScoredQuest } from "@/lib/types";
 import { zoneById } from "@/lib/data";
+import type { ScoredQuest } from "@/lib/types";
 
 type Props = {
   quest: ScoredQuest | null;
@@ -97,7 +97,7 @@ export function SwipeDeck({ quest, next, onSkip, onAccept }: Props) {
               {quest.urgency}
             </span>
           </div>
-          <h2 className="serif mt-2 text-[1.55rem] leading-tight">{quest.title}</h2>
+          <h2 className="serif mt-2 text-[1.45rem] leading-tight">{quest.title}</h2>
           <p className="mt-3 inline-flex items-center gap-1 rounded-full bg-ink px-3 py-1 text-sm text-gold">
             +{karma} karma
             {quest.bonusKarma > 0 ? (
