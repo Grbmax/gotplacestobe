@@ -11,6 +11,7 @@ export async function POST(request: NextRequest) {
   const body = (await request.json()) as {
     label?: string;
     kind?: Property["kind"];
+    unit?: string;
     createdBy?: string;
     createdByName?: string;
   };
@@ -20,11 +21,12 @@ export async function POST(request: NextRequest) {
   if (!["lease", "sublet", "stay"].includes(body.kind)) {
     return Response.json({ error: "Invalid kind" }, { status: 400 });
   }
-  const property = await createProperty({
+  const { property, reused } = await createProperty({
     label: body.label,
     kind: body.kind,
+    unit: body.unit,
     createdBy: body.createdBy,
     createdByName: body.createdByName,
   });
-  return Response.json({ property });
+  return Response.json({ property, reused });
 }

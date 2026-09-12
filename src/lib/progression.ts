@@ -34,3 +34,16 @@ export function surfaceTrend(scans: Scan[]): {
 
   return { points, first, latest, deltaRatio, percentChange, direction };
 }
+
+export function civicAlong(
+  points: { at: string; ratio: number }[],
+  monthly?: { month: string; count: number }[],
+): { at: string; ratio: number; count: number }[] {
+  if (!points.length || !monthly?.length) return [];
+  const by = new Map(monthly.map((m) => [m.month, m.count]));
+  const max = Math.max(1, ...monthly.map((m) => m.count));
+  return points.map((p) => {
+    const count = by.get(p.at.slice(0, 7)) ?? 0;
+    return { at: p.at, ratio: count / max, count };
+  });
+}

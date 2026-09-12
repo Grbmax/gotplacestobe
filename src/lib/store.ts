@@ -1,7 +1,9 @@
 import { persistImage } from "./blob";
 import { hasMongo, getDb } from "./db";
 import { runDetect } from "./detect";
+import { escalateDetections } from "./escalate";
 import { totalAffectedRatio } from "./mockMath";
+import { displayAddress, lookupCityContext, placeKeyFromAddress } from "./pgh";
 import type { Property, Review, Role, Scan, SurfaceCoverage } from "./types";
 
 type PropertyDoc = Omit<Property, "id"> & { _id: string };
@@ -32,6 +34,7 @@ function sampleSeed(): { property: Property; scans: Scan[] } {
     label: "5614 Beacon St",
     kind: "lease",
     createdAt: weeksAgo(6),
+    placeKey: placeKeyFromAddress("5614 Beacon St"),
     isSample: true,
   };
   const baseDetsEarly = [
@@ -109,6 +112,7 @@ async function ensureSeed() {
         label: property.label,
         kind: property.kind,
         createdAt: property.createdAt,
+        placeKey: property.placeKey,
         isSample: property.isSample,
       });
       await db.collection<ScanDoc>("scans").insertMany(
@@ -118,7 +122,6 @@ async function ensureSeed() {
         }),
       );
     } catch (err) {
-      // 11000 = duplicate key — another concurrent request already seeded it, not a real failure.
       if ((err as { code?: number }).code !== 11000) throw err;
     }
     mem.mongoSeeded = true;
@@ -132,18 +135,21 @@ async function ensureSeed() {
 }
 
 function asProperty(doc: PropertyDoc): Property {
+  const label = doc.label;
   return {
     id: doc._id,
-    label: doc.label,
+    label,
     kind: doc.kind,
     createdAt: doc.createdAt,
+    unit: doc.unit,
+    placeKey: doc.placeKey || placeKeyFromAddress(label),
+    cityContext: doc.cityContext,
     createdBy: doc.createdBy,
     createdByName: doc.createdByName,
     isSample: doc.isSample,
   };
 }
 
-/** Inline data URLs break <img> / list payloads once photos get large — serve via API. */
 function clientImageUrl(scanId: string, imageUrl: string): string {
   if (imageUrl.startsWith("data:")) return `/api/scans/${scanId}/image`;
   return imageUrl;
@@ -165,35 +171,119 @@ function asScan(doc: ScanDoc): Scan {
     isSample: doc.isSample,
     scannedBy: doc.scannedBy,
     scannedByName: doc.scannedByName,
+    escalations: doc.escalations,
   };
 }
 
 export async function listProperties(): Promise<Property[]> {
   await ensureSeed();
+  await consolidateDuplicateHouses();
   if (!hasMongo()) return [...mem.properties].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const db = await getDb();
   const docs = await db.collection<PropertyDoc>("properties").find({}).sort({ createdAt: -1 }).toArray();
   return docs.map(asProperty);
 }
 
+function keyOf(property: Property) {
+  return property.placeKey || placeKeyFromAddress(property.label);
+}
+
+async function reassignScans(fromId: string, toId: string) {
+  if (fromId === toId) return;
+  if (!hasMongo()) {
+    for (const s of mem.scans) {
+      if (s.propertyId === fromId) s.propertyId = toId;
+    }
+    return;
+  }
+  const db = await getDb();
+  await db.collection("scans").updateMany({ propertyId: fromId }, { $set: { propertyId: toId } });
+}
+
+async function deletePropertyRecord(id: string) {
+  if (!hasMongo()) {
+    mem.properties = mem.properties.filter((p) => p.id !== id);
+    return;
+  }
+  const db = await getDb();
+  await db.collection<PropertyDoc>("properties").deleteOne({ _id: id });
+}
+
+async function consolidateDuplicateHouses() {
+  const props = !hasMongo()
+    ? [...mem.properties]
+    : (await (await getDb()).collection<PropertyDoc>("properties").find({}).toArray()).map(asProperty);
+  const groups = new Map<string, Property[]>();
+  for (const p of props) {
+    const key = keyOf(p);
+    if (!key.split("|")[0]) continue;
+    const list = groups.get(key) ?? [];
+    list.push(p);
+    groups.set(key, list);
+  }
+  for (const [placeKey, group] of groups) {
+    if (group.length < 2) {
+      const only = group[0];
+      if (only && !only.placeKey) {
+        only.placeKey = placeKey;
+        if (!hasMongo()) {
+          const i = mem.properties.findIndex((p) => p.id === only.id);
+          if (i >= 0) mem.properties[i] = only;
+        } else {
+          const db = await getDb();
+          await db.collection<PropertyDoc>("properties").updateOne({ _id: only.id }, { $set: { placeKey } });
+        }
+      }
+      continue;
+    }
+    const withCounts = await Promise.all(
+      group.map(async (p) => ({ p, n: (await listScans({ propertyId: p.id })).length })),
+    );
+    withCounts.sort((a, b) => b.n - a.n || a.p.createdAt.localeCompare(b.p.createdAt));
+    const keep = withCounts[0]!.p;
+    keep.placeKey = placeKey;
+    for (const extra of withCounts.slice(1)) {
+      await reassignScans(extra.p.id, keep.id);
+      await deletePropertyRecord(extra.p.id);
+    }
+    if (!hasMongo()) {
+      const i = mem.properties.findIndex((p) => p.id === keep.id);
+      if (i >= 0) mem.properties[i] = { ...keep, placeKey };
+    } else {
+      const db = await getDb();
+      await db.collection<PropertyDoc>("properties").updateOne({ _id: keep.id }, { $set: { placeKey } });
+    }
+  }
+}
+
 export async function createProperty(input: {
   label: string;
   kind: Property["kind"];
+  unit?: string;
   createdBy?: string;
   createdByName?: string;
-}): Promise<Property> {
+}): Promise<{ property: Property; reused: boolean }> {
   await ensureSeed();
+  const raw = [input.label.trim(), input.unit?.trim() ? `Apt ${input.unit.trim()}` : ""].filter(Boolean).join(" ");
+  const placeKey = placeKeyFromAddress(raw);
+  const existing = (await listProperties()).find((p) => keyOf(p) === placeKey);
+  if (existing) return { property: existing, reused: true };
+
+  const cityContext = await lookupCityContext(raw);
   const property: Property = {
     id: id("prop"),
-    label: input.label.trim() || "Untitled property",
+    label: displayAddress(raw),
     kind: input.kind,
     createdAt: new Date().toISOString(),
+    unit: input.unit?.trim() || undefined,
+    placeKey,
+    cityContext,
     createdBy: input.createdBy,
     createdByName: input.createdByName,
   };
   if (!hasMongo()) {
     mem.properties.unshift(property);
-    return property;
+    return { property, reused: false };
   }
   const db = await getDb();
   await db.collection<PropertyDoc>("properties").insertOne({
@@ -201,10 +291,36 @@ export async function createProperty(input: {
     label: property.label,
     kind: property.kind,
     createdAt: property.createdAt,
+    unit: property.unit,
+    placeKey: property.placeKey,
+    cityContext: property.cityContext,
     createdBy: property.createdBy,
     createdByName: property.createdByName,
   });
-  return property;
+  return { property, reused: false };
+}
+
+export async function getProperty(propertyId: string): Promise<Property | null> {
+  await ensureSeed();
+  if (!hasMongo()) return mem.properties.find((p) => p.id === propertyId) ?? null;
+  const db = await getDb();
+  const doc = await db.collection<PropertyDoc>("properties").findOne({ _id: propertyId });
+  return doc ? asProperty(doc) : null;
+}
+
+export async function refreshPropertyCity(propertyId: string): Promise<Property | null> {
+  const existing = await getProperty(propertyId);
+  if (!existing) return null;
+  const cityContext = await lookupCityContext(existing.label);
+  existing.cityContext = cityContext;
+  if (!hasMongo()) {
+    const i = mem.properties.findIndex((p) => p.id === propertyId);
+    if (i >= 0) mem.properties[i] = existing;
+    return existing;
+  }
+  const db = await getDb();
+  await db.collection<PropertyDoc>("properties").updateOne({ _id: propertyId }, { $set: { cityContext } });
+  return existing;
 }
 
 export async function listScans(filter: {
@@ -244,7 +360,6 @@ export async function getScan(id: string): Promise<Scan | null> {
   return doc ? asScan(doc) : null;
 }
 
-/** Raw image bytes/URL for <img src="/api/scans/:id/image"> — keeps list JSON small. */
 export async function getScanImage(
   id: string,
 ): Promise<{ kind: "url"; url: string } | { kind: "bytes"; contentType: string; bytes: Buffer } | null> {
@@ -254,10 +369,7 @@ export async function getScanImage(
     imageUrl = mem.scans.find((s) => s.id === id)?.imageUrl;
   } else {
     const db = await getDb();
-    const doc = await db.collection<ScanDoc>("scans").findOne(
-      { _id: id },
-      { projection: { imageUrl: 1 } },
-    );
+    const doc = await db.collection<ScanDoc>("scans").findOne({ _id: id }, { projection: { imageUrl: 1 } });
     imageUrl = doc?.imageUrl;
   }
   if (!imageUrl) return null;
@@ -285,12 +397,15 @@ export async function createScan(input: {
   const property = await getProperty(input.propertyId);
   if (!property) return { error: "Unknown property" };
   if (property.id === SAMPLE_PROPERTY_ID) {
-    // The seeded demo property is fixed history — never let a real scan
-    // blend into it, or the trend/compare math would mix fake and real data.
     return { error: "Create your own property before scanning — the sample one is demo data only" };
   }
 
   const detected = await runDetect(input.image);
+  const civic = escalateDetections(detected.detections, property?.cityContext);
+  const detections = civic.detections;
+  const finding = civic.findingExtra
+    ? `${detected.finding} ${civic.findingExtra}`
+    : detected.finding;
   const imageUrl = await persistImage(input.image, id("img"));
   const scan: Scan = {
     id: id("scan"),
@@ -299,10 +414,11 @@ export async function createScan(input: {
     surface: input.surface.trim() || "surface",
     imageUrl,
     capturedAt: new Date().toISOString(),
-    detections: detected.detections,
-    totalAffectedRatio: totalAffectedRatio(detected.detections),
-    finding: detected.finding,
+    detections,
+    totalAffectedRatio: totalAffectedRatio(detections),
+    finding,
     detector: detected.detector,
+    escalations: civic.escalations.length ? civic.escalations : undefined,
     scannedBy: input.scannedBy,
     scannedByName: input.scannedByName,
   };
@@ -317,11 +433,16 @@ export async function createScan(input: {
   return { scan: { ...scan, imageUrl: clientImageUrl(scan.id, scan.imageUrl) } };
 }
 
-async function getProperty(propertyId: string): Promise<Property | null> {
-  if (!hasMongo()) return mem.properties.find((p) => p.id === propertyId) ?? null;
+export async function deleteScan(id: string): Promise<boolean> {
+  await ensureSeed();
+  if (!hasMongo()) {
+    const before = mem.scans.length;
+    mem.scans = mem.scans.filter((s) => s.id !== id);
+    return mem.scans.length < before;
+  }
   const db = await getDb();
-  const doc = await db.collection<PropertyDoc>("properties").findOne({ _id: propertyId });
-  return doc ? asProperty(doc) : null;
+  const res = await db.collection<ScanDoc>("scans").deleteOne({ _id: id });
+  return res.deletedCount > 0;
 }
 
 export async function reviewScan(
@@ -385,7 +506,6 @@ export async function propertySummaries() {
   return out;
 }
 
-/** Real-Auth0 path only: role is set once after first login, keyed by the Auth0 `sub`. */
 export async function getIdentityRole(authId: string): Promise<Role | null> {
   if (!hasMongo()) return mem.identities.get(authId)?.role ?? null;
   const db = await getDb();

@@ -1,4 +1,4 @@
-import type { SurfaceCoverage } from "./types";
+import type { CivicPulse, SurfaceCoverage } from "./types";
 
 const PRIORS: Record<string, number> = {
   bathroom_ceiling: 0.95,
@@ -57,7 +57,10 @@ function reasonFor(cov: SurfaceCoverage | undefined, prior: number) {
   return bits.join(" · ");
 }
 
-export function nextBestSurface(covered: SurfaceCoverage[]): {
+export function nextBestSurface(
+  covered: SurfaceCoverage[],
+  civic?: CivicPulse,
+): {
   room: string;
   surface: string;
   reason: string;
@@ -69,7 +72,10 @@ export function nextBestSurface(covered: SurfaceCoverage[]): {
 
   for (const s of KNOWN_SURFACES) {
     const cov = byKey.get(`${s.room}::${s.surface}`);
-    const prior = priorRisk(s.key);
+    let prior = priorRisk(s.key);
+    if (civic?.waterNearby && (s.key === "under_sink" || s.key === "basement_wall")) {
+      prior *= 1.85;
+    }
     const coverage = coverageScore(cov?.scanCount ?? 0);
     const decay = recencyDecay(cov?.lastScannedAt ?? null);
     const value = prior * (1 - coverage) * decay;
@@ -80,9 +86,10 @@ export function nextBestSurface(covered: SurfaceCoverage[]): {
     }
   }
 
+  const boosted = civic?.waterNearby && (best.key === "under_sink" || best.key === "basement_wall");
   return {
     room: best.room,
     surface: best.surface,
-    reason: reasonFor(bestCov, priorRisk(best.key)),
+    reason: boosted && civic?.prompt ? civic.prompt : reasonFor(bestCov, priorRisk(best.key)),
   };
 }
