@@ -20,7 +20,7 @@ export function ScanCard({ scan, onSelect, onDelete }: Props) {
         <PhotoEvidence scan={scan} />
         <div className="mt-2 flex items-center justify-between gap-2">
           <p className="truncate text-sm font-medium">{roomSurfaceLabel(scan.room, scan.surface, " / ")}</p>
-          <DetectorBadge detector={scan.detector} sample={scan.isSample} />
+          <DetectorBadge detector={scan.detector} sample={scan.isSample} degraded={scan.degraded} />
         </div>
         <p className="mt-1 line-clamp-2 text-xs text-zinc-400">{scan.finding}</p>
         {cites.length ? (

@@ -3,20 +3,25 @@
 type Props = {
   detector: "gemini" | "mock" | "preview" | "gemini+roboflow" | "roboflow";
   sample?: boolean;
+  /** True when "mock" isn't a deliberate mode but a real Gemini failure (quota/error) — must never read as calm. */
+  degraded?: boolean;
 };
 
-export function DetectorBadge({ detector, sample }: Props) {
-  // Quiet by default (match recent UI): hide Gemini/Preview. Surface Mock + RF paths.
-  const label =
-    detector === "gemini+roboflow"
+export function DetectorBadge({ detector, sample, degraded }: Props) {
+  // Quiet by default (match recent UI): hide Gemini/Preview when everything's fine.
+  // A real outage overrides that silence — it must never read as calm.
+  const label = degraded
+    ? "Gemini unavailable"
+    : detector === "gemini+roboflow"
       ? "Gemini+RF"
       : detector === "roboflow"
         ? "Roboflow"
         : detector === "mock"
           ? "Mock"
           : null;
-  const tone =
-    detector === "gemini+roboflow" || detector === "roboflow"
+  const tone = degraded
+    ? "bg-rose-500 text-white animate-pulse"
+    : detector === "gemini+roboflow" || detector === "roboflow"
       ? "bg-sky-400 text-black"
       : "bg-amber-400 text-black";
 

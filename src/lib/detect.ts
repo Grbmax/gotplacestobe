@@ -135,6 +135,8 @@ export type DetectResult = {
   detections: Detection[];
   finding: string;
   detector: DetectorKind;
+  /** True only when this is the last-resort mock fallback after Gemini AND Roboflow both failed/are absent — never for a real reading from either. */
+  degraded?: boolean;
 };
 
 function findingFromDetections(detections: Detection[], source: "roboflow" | "mock"): string {
@@ -150,11 +152,17 @@ function findingFromDetections(detections: Detection[], source: "roboflow" | "mo
     : `Preview only — looks like possible ${label}.`;
 }
 
+function isQuotaError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return msg.includes("RESOURCE_EXHAUSTED") || msg.includes("429") || msg.toLowerCase().includes("quota");
+}
+
 /** Gemini primary; Roboflow verifies. If Gemini is down (e.g. quota), Roboflow is used alone — never invent Mock boxes when RF is available. */
 export async function runDetect(imageDataUrl: string): Promise<DetectResult> {
   const preferred = selectDetector();
   let primary: { detections: Detection[]; finding: string } | null = null;
   let base: "gemini" | "mock" | null = null;
+  let geminiErr: unknown = null;
 
   if (preferred.name === "mock") {
     primary = await preferred.detect(imageDataUrl);
@@ -165,10 +173,11 @@ export async function runDetect(imageDataUrl: string): Promise<DetectResult> {
       base = "gemini";
     } catch (err) {
       console.error("[detect] Gemini failed; will try Roboflow then mock", err);
+      geminiErr = err;
     }
   }
 
-  // Forced mock mode — skip RF.
+  // Forced mock mode — skip RF. Deliberate testing mode, not a degraded state.
   if (base === "mock" && primary) {
     return { ...primary, detector: "mock" };
   }
@@ -177,7 +186,7 @@ export async function runDetect(imageDataUrl: string): Promise<DetectResult> {
     try {
       const rf = await detectWithRoboflow(imageDataUrl);
 
-      // Gemini down → Roboflow alone (real CV, not seeded mock).
+      // Gemini down → Roboflow alone (real CV, not seeded mock — not degraded).
       if (!primary || base !== "gemini") {
         return {
           detections: rf,
@@ -202,6 +211,12 @@ export async function runDetect(imageDataUrl: string): Promise<DetectResult> {
 
   if (primary && base === "gemini") return { ...primary, detector: "gemini" };
 
-  const fallback = await mock.detect(imageDataUrl);
-  return { ...fallback, detector: "mock" };
+  // Both Gemini and Roboflow are unavailable — this is a real outage, not a clean
+  // reading. Never let it look like one.
+  const finding = geminiErr
+    ? isQuotaError(geminiErr)
+      ? "Gemini is temporarily unavailable (daily quota reached) — this is not a real reading. Try again once quota resets, or use a different API key."
+      : "Gemini is temporarily unavailable — this is not a real reading. Please retry."
+    : findingFromDetections([], "mock");
+  return { detections: [], finding, detector: "mock", degraded: Boolean(geminiErr) };
 }

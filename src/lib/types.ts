@@ -154,6 +154,8 @@ export type Scan = {
   scannedBy?: string;
   scannedByName?: string;
   escalations?: Escalation[];
+  /** True when this reading is a mock fallback caused by a real Gemini failure (quota, rate limit, error) — never a genuine "clean" result. */
+  degraded?: boolean;
 };
 
 export type Review = {
