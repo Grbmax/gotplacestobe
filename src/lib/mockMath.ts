@@ -83,7 +83,18 @@ export function sanitizeDetections(raw: unknown): Detection[] {
       areaRatio: clamp01(Number(d.areaRatio ?? bbox[2] * bbox[3])),
     });
   }
-  return out;
+  return filterByConfidence(out);
+}
+
+/**
+ * Drop weak guesses so they don't inflate “% of frame flagged”.
+ * Mold false-positives are common on dirt/shadow — require higher confidence.
+ */
+export function filterByConfidence(detections: Detection[]): Detection[] {
+  return detections.filter((d) => {
+    const min = d.cls === "mold" ? 0.62 : 0.55;
+    return d.confidence >= min && d.areaRatio >= 0.008;
+  });
 }
 
 export function totalAffectedRatio(detections: Detection[]) {

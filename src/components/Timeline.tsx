@@ -45,7 +45,19 @@ export function Timeline({ points, civic, direction }: Props) {
         <p className="text-[10px] uppercase tracking-[0.14em] text-zinc-500">Defect coverage</p>
         {direction === "worsening" ? (
           <span className="rounded-full bg-rose-500/20 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-rose-300">
-            Worsening — Landlord Inaction
+            Worsening
+          </span>
+        ) : direction === "improving" ? (
+          <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-300">
+            Improving
+          </span>
+        ) : direction === "stable" ? (
+          <span className="rounded-full bg-zinc-500/20 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-zinc-300">
+            Stable
+          </span>
+        ) : direction === "insufficient_data" ? (
+          <span className="rounded-full bg-zinc-700/40 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-zinc-400">
+            Need another scan
           </span>
         ) : null}
       </div>

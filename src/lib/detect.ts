@@ -11,7 +11,8 @@ class MockDetector implements Detector {
   name = "mock" as const;
   async detect(imageDataUrl: string) {
     const seed = String(imageDataUrl.length);
-    const detections = mockDetections(`shot:${seed}`, 0.2);
+    // Keep mock sparse so demos don't look like constant false mold alerts.
+    const detections = mockDetections(`shot:${seed}`, -0.5);
     return { detections, finding: mockFinding(detections) };
   }
 }
@@ -59,11 +60,15 @@ class GeminiDetector implements Detector {
     const ai = new GoogleGenAI({ apiKey: key });
     const prompt = [
       "You are doing a rental move-in inspection photo of an interior or exterior surface.",
-      "Look only for: mold, water_seepage, cracks, peeling_paint.",
+      "Look only for clear, unambiguous: mold, water_seepage, cracks, peeling_paint.",
+      "Be conservative. Dirt, dust, shadows, normal discoloration, wood grain, and camera noise are NOT defects.",
+      "Do NOT label something as mold unless you are clearly confident it is mold (fuzzy/spotty biological growth), not just a dark stain.",
+      "If unsure, omit the detection. Prefer detections: [] over a false positive.",
+      "confidence must reflect certainty (0.55–0.7 = uncertain but plausible; ≥0.8 = clear). Do not invent high confidence.",
       "Return JSON matching the schema. bbox is [x,y,w,h] normalized 0..1 relative to the image.",
-      "areaRatio is the share of the frame occupied by that defect (0..1).",
+      "areaRatio is the share of the frame occupied by that defect (0..1) — do not exaggerate.",
       "If the surface looks clean, return detections: [] and a finding saying no visible defects.",
-      "finding must be one plain-English sentence describing what is visible and how concerning it is.",
+      "finding must be one plain-English sentence; if empty detections, say nothing concerning was found.",
     ].join(" ");
 
     const response = await ai.models.generateContent({
@@ -94,7 +99,7 @@ class GeminiDetector implements Detector {
 
     const detections = sanitizeDetections(parsed.detections);
     const finding =
-      typeof parsed.finding === "string" && parsed.finding.trim()
+      typeof parsed.finding === "string" && parsed.finding.trim() && detections.length
         ? parsed.finding.trim()
         : detections.length
           ? "Visible surface defects detected in this frame."
