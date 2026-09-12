@@ -1,14 +1,22 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { DetectorBadge } from "@/components/DetectorBadge";
 import { IdentityChip } from "@/components/IdentityChip";
 import { SurfacePrompt } from "@/components/SurfacePrompt";
 import { Viewfinder } from "@/components/Viewfinder";
 import { useIdentity } from "@/lib/IdentityContext";
-import { KNOWN_SURFACES, nextBestSurface } from "@/lib/nextbest";
-import type { Detection, Property, Scan, SurfaceCoverage } from "@/lib/types";
+import {
+  escalationSentence,
+  roomLabel,
+  severityFromRatio,
+  severityTextClass,
+  surfaceLabel,
+  thisFrameFlaggedCopy,
+} from "@/lib/labels";
+import { KNOWN_SURFACES, coverageFromScans, nextBestSurface } from "@/lib/nextbest";
+import type { Detection, Property, Scan } from "@/lib/types";
 
 export default function ScanPage() {
   const { identity } = useIdentity();
@@ -16,7 +24,7 @@ export default function ScanPage() {
   const [propertyId, setPropertyId] = useState("");
   const [room, setRoom] = useState("bathroom");
   const [surface, setSurface] = useState("ceiling_vent");
-  const [reason, setReason] = useState("never scanned · high-risk surface");
+  const [reason, setReason] = useState("Never scanned · high-risk surface");
   const [analyzing, setAnalyzing] = useState(false);
   const [frozenUrl, setFrozenUrl] = useState<string | null>(null);
   const [resultDets, setResultDets] = useState<Detection[] | null>(null);
@@ -24,23 +32,38 @@ export default function ScanPage() {
   const [error, setError] = useState<string | null>(null);
   const [pastScans, setPastScans] = useState<Scan[]>([]);
   const [ghostOn, setGhostOn] = useState(true);
+  const [pickSurface, setPickSurface] = useState(false);
 
   const scannableProperties = useMemo(() => (properties ?? []).filter((p) => !p.isSample), [properties]);
+  const house = useMemo(
+    () => (properties ?? []).find((p) => p.id === propertyId),
+    [properties, propertyId],
+  );
 
-  // Latest past scan of the currently selected room+surface, newest-first from the API already.
   const ghostUrl = useMemo(() => {
     const match = pastScans.find((s) => s.room === room && s.surface === surface);
     return match?.imageUrl ?? null;
   }, [pastScans, room, surface]);
+
+  const applyPlanner = useCallback(
+    (scans: Scan[], nextHouse?: Property) => {
+      const next = nextBestSurface(coverageFromScans(scans), nextHouse?.cityContext?.civic);
+      setRoom(next.room);
+      setSurface(next.surface);
+      setReason(next.reason);
+    },
+    [],
+  );
 
   useEffect(() => {
     void (async () => {
       const res = await fetch("/api/properties", { cache: "no-store" });
       const data = (await res.json()) as { properties: Property[] };
       setProperties(data.properties);
-      // Never default onto the sample property — a real scan must never land
-      // on fixed demo data, or the progression graph blends fake and real.
-      const first = data.properties.find((p) => !p.isSample);
+      const requested =
+        typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("propertyId") : null;
+      const match = requested && data.properties.find((p) => p.id === requested && !p.isSample);
+      const first = match ?? data.properties.find((p) => !p.isSample);
       if (first) setPropertyId(first.id);
     })().catch(() => setError("Could not load properties"));
   }, []);
@@ -50,31 +73,12 @@ export default function ScanPage() {
     void (async () => {
       const res = await fetch(`/api/scans?propertyId=${propertyId}`, { cache: "no-store" });
       const data = (await res.json()) as { scans: Scan[] };
-      setPastScans(data.scans ?? []);
-      const map = new Map<string, SurfaceCoverage>();
-      // /api/scans returns newest-first, so the first hit per key is the latest scan.
-      for (const s of data.scans) {
-        const key = `${s.room}::${s.surface}`;
-        const cur = map.get(key);
-        if (!cur) {
-          map.set(key, {
-            room: s.room,
-            surface: s.surface,
-            lastScannedAt: s.capturedAt,
-            scanCount: 1,
-            lastDetections: s.detections,
-          });
-        } else {
-          cur.scanCount += 1;
-        }
-      }
-      const house = properties.find((p) => p.id === propertyId);
-      const next = nextBestSurface([...map.values()], house?.cityContext?.civic);
-      setRoom(next.room);
-      setSurface(next.surface);
-      setReason(next.reason);
+      const scans = data.scans ?? [];
+      setPastScans(scans);
+      const nextHouse = (properties ?? []).find((p) => p.id === propertyId);
+      applyPlanner(scans, nextHouse);
     })().catch(() => undefined);
-  }, [propertyId, properties]);
+  }, [propertyId, properties, applyPlanner]);
 
   const rooms = useMemo(() => [...new Set(KNOWN_SURFACES.map((s) => s.room))], []);
   const surfaces = useMemo(
@@ -109,6 +113,9 @@ export default function ScanPage() {
       if (!res.ok || !data.scan) throw new Error(data.error ?? "scan failed");
       setResultScan(data.scan);
       setResultDets(data.scan.detections);
+      const nextList = [data.scan, ...pastScans];
+      setPastScans(nextList);
+      applyPlanner(nextList, house);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Scan failed");
       setFrozenUrl(null);
@@ -123,7 +130,6 @@ export default function ScanPage() {
     setResultScan(null);
   }
 
-  // Loading, or nothing scannable yet — don't hand the camera to a dead-end flow.
   if (properties === null) {
     return <main className="grid h-dvh place-items-center bg-black text-sm text-zinc-500">Loading…</main>;
   }
@@ -147,6 +153,8 @@ export default function ScanPage() {
       </main>
     );
   }
+
+  const alignmentHint = ghostUrl ? "Line this up with your last shot" : "First shot of this surface";
 
   return (
     <main className="relative h-dvh overflow-hidden bg-black text-white">
@@ -174,7 +182,7 @@ export default function ScanPage() {
                 onClick={() => setGhostOn((v) => !v)}
                 className={`rounded-full px-3 py-1.5 text-xs ${ghostOn ? "bg-emerald-400 text-black" : "bg-black/55 text-zinc-200"}`}
               >
-                Ghost {ghostOn ? "on" : "off"}
+                {ghostOn ? "Hide last photo" : "Show last photo"}
               </button>
             )}
             {propertyId && (
@@ -188,7 +196,7 @@ export default function ScanPage() {
           </div>
         </div>
         <div className="pointer-events-auto">
-          <SurfacePrompt room={room} surface={surface} reason={reason} />
+          <SurfacePrompt room={room} surface={surface} reason={reason} hint={alignmentHint} />
         </div>
       </div>
 
@@ -201,63 +209,89 @@ export default function ScanPage() {
                 <DetectorBadge detector={resultScan.detector} sample={resultScan.isSample} />
               </div>
               <p className="mt-2 text-sm leading-relaxed">{resultScan.finding}</p>
-              {resultScan.escalations?.length ? (
-                <p className="mt-2 text-xs text-rose-300">
-                  {resultScan.escalations.map((e) => `${e.from} → ${e.to}`).join(" · ")}
-                </p>
-              ) : null}
-              <p className="mt-2 text-xs text-emerald-300">
-                {(resultScan.totalAffectedRatio * 100).toFixed(1)}% of frame affected
+              {resultScan.escalations?.length
+                ? resultScan.escalations.map((e) => (
+                    <p key={`${e.cls}-${e.to}`} className="mt-2 text-xs leading-snug text-rose-300">
+                      {escalationSentence(e)}
+                    </p>
+                  ))
+                : null}
+              <p className={`mt-2 text-xs ${severityTextClass(severityFromRatio(resultScan.totalAffectedRatio))}`}>
+                {thisFrameFlaggedCopy(resultScan.totalAffectedRatio)}
               </p>
               <button
                 type="button"
                 onClick={resumeLive}
                 className="mt-3 w-full rounded-full bg-emerald-400 py-2.5 text-sm font-semibold text-black"
               >
-                Back to live
+                Next surface
               </button>
             </div>
           )}
 
           {!resultScan && (
-            <div className="grid grid-cols-3 gap-2">
-              <select
-                value={propertyId}
-                onChange={(e) => setPropertyId(e.target.value)}
-                className="rounded-xl border border-zinc-700 bg-zinc-950/90 px-2 py-2 text-xs"
-              >
-                {scannableProperties.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
-              <select
-                value={room}
-                onChange={(e) => {
-                  setRoom(e.target.value);
-                  const next = KNOWN_SURFACES.find((s) => s.room === e.target.value);
-                  if (next) setSurface(next.surface);
-                }}
-                className="rounded-xl border border-zinc-700 bg-zinc-950/90 px-2 py-2 text-xs"
-              >
-                {rooms.map((r) => (
-                  <option key={r} value={r}>
-                    {r}
-                  </option>
-                ))}
-              </select>
-              <select
-                value={surface}
-                onChange={(e) => setSurface(e.target.value)}
-                className="rounded-xl border border-zinc-700 bg-zinc-950/90 px-2 py-2 text-xs"
-              >
-                {surfaces.map((s) => (
-                  <option key={s} value={s}>
-                    {s.replace(/_/g, " ")}
-                  </option>
-                ))}
-              </select>
+            <div className="space-y-2">
+              {!pickSurface ? (
+                <button
+                  type="button"
+                  onClick={() => setPickSurface(true)}
+                  className="w-full text-center text-xs text-zinc-400 underline underline-offset-4"
+                >
+                  Different surface
+                </button>
+              ) : (
+                <div className="space-y-2">
+                  <div className="grid grid-cols-3 gap-2">
+                    <select
+                      value={propertyId}
+                      onChange={(e) => setPropertyId(e.target.value)}
+                      className="rounded-xl border border-zinc-700 bg-zinc-950/90 px-2 py-2 text-xs"
+                    >
+                      {scannableProperties.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.label}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      value={room}
+                      onChange={(e) => {
+                        setRoom(e.target.value);
+                        const next = KNOWN_SURFACES.find((s) => s.room === e.target.value);
+                        if (next) setSurface(next.surface);
+                      }}
+                      className="rounded-xl border border-zinc-700 bg-zinc-950/90 px-2 py-2 text-xs"
+                    >
+                      {rooms.map((r) => (
+                        <option key={r} value={r}>
+                          {roomLabel(r)}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      value={surface}
+                      onChange={(e) => setSurface(e.target.value)}
+                      className="rounded-xl border border-zinc-700 bg-zinc-950/90 px-2 py-2 text-xs"
+                    >
+                      {surfaces.map((s) => (
+                        <option key={s} value={s}>
+                          {surfaceLabel(s)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      applyPlanner(pastScans, house);
+                      setPickSurface(false);
+                    }}
+                    className="w-full text-center text-xs text-zinc-400 underline underline-offset-4"
+                  >
+                    Use the recommended surface
+                  </button>
+                </div>
+              )}
             </div>
           )}
 

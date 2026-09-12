@@ -1,3 +1,4 @@
+import { escalationSentence } from "@/lib/labels";
 import type { CityContext, DefectClass, EbllLevel, Scan } from "@/lib/types";
 
 export type Tone = "green" | "amber" | "rose" | "zinc";
@@ -170,7 +171,7 @@ export function dashboardTiles(context: CityContext | undefined, scans: Scan[]):
       notes: scans
         .flatMap((s) => s.escalations ?? [])
         .slice(0, 4)
-        .map((e) => `${e.from} → ${e.to}: ${e.why}`),
+        .map((e) => escalationSentence(e)),
     });
   } else {
     tiles.push({

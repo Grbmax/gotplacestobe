@@ -5,7 +5,9 @@ import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { IdentityChip } from "@/components/IdentityChip";
 import { OptimizeChart } from "@/components/OptimizeChart";
-import { cumulativeDefects, guidedOrder, naiveOrder, photosToReach, totalDistinctDefects } from "@/lib/optimize";
+import { roomSurfaceLabel } from "@/lib/labels";
+import { coverageFromScans, nextBestSurface } from "@/lib/nextbest";
+import { cumulativeDefects, guidedOrder, guidedVsNaiveSummary, naiveOrder, totalDistinctDefects } from "@/lib/optimize";
 import type { Property, Scan } from "@/lib/types";
 
 export default function OptimizePage() {
@@ -30,19 +32,16 @@ export default function OptimizePage() {
     })().catch(() => setLoaded(true));
   }, [propertyId]);
 
-  const { guidedCum, naiveCum, total, guidedAt80, naiveAt80 } = useMemo(() => {
-    const total = totalDistinctDefects(scans);
-    const target = Math.max(1, Math.ceil(total * 0.8));
-    const guidedCum = cumulativeDefects(guidedOrder(scans));
-    const naiveCum = cumulativeDefects(naiveOrder(scans));
+  const { guidedCum, naiveCum, total, summary, nextShot } = useMemo(() => {
+    const next = nextBestSurface(coverageFromScans(scans), property?.cityContext?.civic);
     return {
-      guidedCum,
-      naiveCum,
-      total,
-      guidedAt80: photosToReach(guidedCum, target),
-      naiveAt80: photosToReach(naiveCum, target),
+      guidedCum: cumulativeDefects(guidedOrder(scans)),
+      naiveCum: cumulativeDefects(naiveOrder(scans)),
+      total: totalDistinctDefects(scans),
+      summary: guidedVsNaiveSummary(scans),
+      nextShot: roomSurfaceLabel(next.room, next.surface),
     };
-  }, [scans]);
+  }, [scans, property]);
 
   if (!loaded) {
     return <main className="grid min-h-dvh place-items-center text-sm text-zinc-500">Loading…</main>;
@@ -63,9 +62,16 @@ export default function OptimizePage() {
       {scans.length < 3 || total === 0 ? (
         <div className="mt-10 rounded-2xl border border-dashed border-zinc-800 p-6 text-center">
           <p className="text-sm text-zinc-400">Not enough scans yet.</p>
-          <p className="mt-1 text-xs text-zinc-500">
-            Take at least a few photos across different surfaces — some with real findings — to compare orderings.
+          <p className="mt-2 text-sm text-zinc-200">Photograph the {nextShot} next.</p>
+          <p className="mt-2 text-xs text-zinc-500">
+            Take a few photos across different surfaces — some with real findings — to compare guided vs. naive.
           </p>
+          <Link
+            href={`/scan?propertyId=${propertyId}`}
+            className="mt-5 inline-block rounded-full bg-emerald-400 px-5 py-2.5 text-sm font-semibold text-black"
+          >
+            Take that photo
+          </Link>
         </div>
       ) : (
         <>
@@ -82,12 +88,7 @@ export default function OptimizePage() {
           </button>
 
           <div className="mt-6 rounded-2xl border border-emerald-400/30 bg-emerald-400/10 p-4">
-            <p className="text-sm leading-relaxed text-emerald-100">
-              Guided capture found {Math.min(total, Math.ceil(total * 0.8))} of {total} defects in{" "}
-              <span className="font-semibold">{guidedAt80}</span> photo{guidedAt80 === 1 ? "" : "s"}. Photographing
-              in the order they were actually taken took{" "}
-              <span className="font-semibold">{naiveAt80}</span> photo{naiveAt80 === 1 ? "" : "s"} to find the same.
-            </p>
+            <p className="text-sm leading-relaxed text-emerald-100">{summary?.sentence}</p>
           </div>
 
           <p className="mt-4 text-xs text-zinc-500">

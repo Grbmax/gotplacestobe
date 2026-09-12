@@ -67,3 +67,23 @@ export function photosToReach(cumulative: number[], target: number): number {
   const idx = cumulative.findIndex((n) => n >= target);
   return idx === -1 ? cumulative.length : idx + 1;
 }
+
+export function guidedVsNaiveSummary(scans: Scan[]) {
+  const total = totalDistinctDefects(scans);
+  if (scans.length < 3 || total === 0) return null;
+  const target = Math.max(1, Math.ceil(total * 0.8));
+  const guidedAt80 = photosToReach(cumulativeDefects(guidedOrder(scans)), target);
+  const naiveAt80 = photosToReach(cumulativeDefects(naiveOrder(scans)), target);
+  const found = Math.min(total, target);
+  return {
+    total,
+    found,
+    guidedAt80,
+    naiveAt80,
+    sentence: `Guided capture found ${found} of ${total} defects in ${guidedAt80} photo${
+      guidedAt80 === 1 ? "" : "s"
+    }. Photographing in the order they were actually taken took ${naiveAt80} photo${
+      naiveAt80 === 1 ? "" : "s"
+    } to find the same.`,
+  };
+}

@@ -37,7 +37,7 @@ export function BoxOverlay({ detections, width, height, className }: Props) {
           ctx.strokeStyle = color;
           ctx.lineWidth = 2;
           ctx.strokeRect(x, y, w, h);
-          const label = `${d.cls.replace(/_/g, " ")} ${Math.round(d.confidence * 100)}%`;
+          const label = `${d.cls.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())} ${Math.round(d.confidence * 100)}%`;
           ctx.font = "12px ui-sans-serif, system-ui, sans-serif";
           const tw = ctx.measureText(label).width + 8;
           ctx.fillStyle = "rgba(0,0,0,0.7)";

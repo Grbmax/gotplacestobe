@@ -11,6 +11,15 @@ import { ScanCard } from "@/components/ScanCard";
 import { Timeline } from "@/components/Timeline";
 import { useIdentity } from "@/lib/IdentityContext";
 import { ROLE_LABEL } from "@/lib/identity";
+import {
+  REVIEW_ROLES,
+  kindLabel,
+  roleLabel,
+  roomSurfaceLabel,
+  trendLabel,
+  verdictLabel,
+} from "@/lib/labels";
+import { guidedVsNaiveSummary } from "@/lib/optimize";
 import { civicAlong, surfaceTrend } from "@/lib/progression";
 import type { Property, Review, Scan } from "@/lib/types";
 
@@ -103,16 +112,11 @@ export default function ReportPage() {
         </Link>
         <div className="flex items-center gap-2">
           <IdentityChip />
-          <button
-            type="button"
-            disabled
-            title="PDF waits until the walkthrough details are locked"
-            className="rounded-full border border-zinc-700 px-3 py-1.5 text-xs text-zinc-500"
+          <Link
+            href={`/scan?propertyId=${propertyId}`}
+            className="rounded-full bg-emerald-400 px-3 py-1.5 text-xs font-semibold text-black"
           >
-            PDF later
-          </button>
-          <Link href="/scan" className="rounded-full bg-emerald-400 px-3 py-1.5 text-xs font-semibold text-black">
-            Add photos
+            Add the next photo
           </Link>
         </div>
       </div>
@@ -120,18 +124,33 @@ export default function ReportPage() {
       <h1 className="mt-4 text-3xl font-semibold tracking-tight">{property?.label ?? "Unknown"}</h1>
       <div className="mt-1 flex items-center justify-between gap-2">
         <p className="text-sm text-zinc-400">
-          {property?.kind} · {scans.length} {scans.length === 1 ? "move-in photo" : "move-in photos"}
+          {property ? kindLabel(property.kind) : ""}
+          {property?.unit ? ` · Apt ${property.unit}` : ""}
+          {property ? " · " : ""}
+          {scans.length} {scans.length === 1 ? "move-in photo" : "move-in photos"}
         </p>
-        <Link href={`/optimize/${propertyId}`} className="text-xs text-emerald-400 underline underline-offset-4">
-          Guided vs. naive →
-        </Link>
       </div>
+
+      {(() => {
+        const summary = guidedVsNaiveSummary(scans);
+        if (!summary) return null;
+        return (
+          <Link
+            href={`/optimize/${propertyId}`}
+            className="mt-4 block rounded-2xl border border-emerald-400/30 bg-emerald-400/10 p-4"
+          >
+            <p className="text-[11px] uppercase tracking-[0.18em] text-emerald-300">Guided vs. naive</p>
+            <p className="mt-2 text-sm leading-relaxed text-emerald-100">{summary.sentence}</p>
+            <p className="mt-2 text-xs text-emerald-300">See the chart →</p>
+          </Link>
+        );
+      })()}
 
       {property && <HouseDashboard context={property.cityContext} scans={scans} />}
 
-      <div className="mt-4 flex items-center gap-2 text-xs text-zinc-400">
+      <div className="mt-4 text-xs text-zinc-400">
         {reviewingAsSelf ? (
-          <>
+          <div className="flex items-center gap-2">
             <span>
               Reviewing as <span className="text-zinc-200">{identity.name}</span> ({ROLE_LABEL[identity.role]})
             </span>
@@ -142,27 +161,40 @@ export default function ReportPage() {
             >
               not you?
             </button>
-          </>
+          </div>
         ) : (
-          <>
-            <span>Reviewing as</span>
-            <select
-              value={overrideRole}
-              onChange={(e) => setOverrideRole(e.target.value as Review["reviewerRole"])}
-              className="rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1"
-            >
-              <option value="tenant">{ROLE_LABEL.tenant}</option>
-              <option value="owner">{ROLE_LABEL.owner}</option>
-              <option value="inspector">{ROLE_LABEL.inspector}</option>
-            </select>
-            <button
-              type="button"
-              onClick={() => setReviewingAsSelf(true)}
-              className="underline underline-offset-2 text-zinc-500"
-            >
-              use my role
-            </button>
-          </>
+          <div>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-zinc-500">Review as</p>
+              <button
+                type="button"
+                onClick={() => setReviewingAsSelf(true)}
+                className="underline underline-offset-2 text-zinc-500"
+              >
+                use my role
+              </button>
+            </div>
+            <div className="mt-2 grid grid-cols-3 gap-2" role="group" aria-label="Reviewer role">
+              {REVIEW_ROLES.map((item) => {
+                const selected = overrideRole === item.value;
+                return (
+                  <button
+                    key={item.value}
+                    type="button"
+                    onClick={() => setOverrideRole(item.value)}
+                    aria-pressed={selected}
+                    className={
+                      selected
+                        ? "rounded-xl border border-emerald-400 bg-emerald-400/10 py-2 text-xs font-medium text-emerald-300"
+                        : "rounded-xl border border-zinc-700 bg-zinc-950 py-2 text-xs text-zinc-300"
+                    }
+                  >
+                    {item.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         )}
       </div>
 
@@ -184,11 +216,9 @@ export default function ReportPage() {
           return (
             <section key={g.key}>
               <div className="flex items-center justify-between gap-2">
-                <h2 className="text-lg font-medium">
-                  {g.room} · {g.surface.replace(/_/g, " ")}
-                </h2>
-                <span className={`rounded-full px-2.5 py-1 text-[10px] uppercase tracking-wider ${badge}`}>
-                  {trend.direction.replace(/_/g, " ")}
+                <h2 className="text-lg font-medium">{roomSurfaceLabel(g.room, g.surface)}</h2>
+                <span className={`rounded-full px-2.5 py-1 text-[10px] font-medium tracking-wide ${badge}`}>
+                  {trendLabel(trend.direction)}
                 </span>
               </div>
 
@@ -234,7 +264,8 @@ export default function ReportPage() {
                         </div>
                       ) : (
                         <p className="px-1 text-xs text-zinc-500">
-                          {scan.review.verdict} by {scan.review.reviewerRole} ·{" "}
+                          {verdictLabel(scan.review.verdict)} by{" "}
+                          {scan.review.reviewerName ?? roleLabel(scan.review.reviewerRole)} ·{" "}
                           <DetectorBadge detector={scan.detector} sample={scan.isSample} />
                         </p>
                       )}

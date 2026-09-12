@@ -1,4 +1,4 @@
-import type { CivicPulse, Detection, SurfaceCoverage } from "./types";
+import type { CivicPulse, Detection, Scan, SurfaceCoverage } from "./types";
 
 const PRIORS: Record<string, number> = {
   bathroom_ceiling: 0.95,
@@ -73,18 +73,42 @@ function reasonFor(cov: SurfaceCoverage | undefined, prior: number) {
   const bits: string[] = [];
   const ambiguous = mostAmbiguous(cov?.lastDetections);
   if (ambiguous && ambiguous.ambiguity >= UNCERTAIN_THRESHOLD) {
-    bits.push(`last read was uncertain (${ambiguous.confidence.toFixed(2)})`);
+    bits.push(`Last read was uncertain (${ambiguous.confidence.toFixed(2)})`);
   } else if (!cov || cov.scanCount === 0) {
-    bits.push("never scanned");
+    bits.push("Never scanned");
   } else if (cov.scanCount < 2) {
-    bits.push("only one scan");
+    bits.push("Only one scan");
   } else {
-    bits.push("due for a recheck");
+    bits.push("Due for a recheck");
   }
   if (prior >= 0.85) bits.push("high-risk surface");
   else if (prior >= 0.65) bits.push("elevated risk");
   else bits.push("routine check");
   return bits.join(" · ");
+}
+
+export function coverageFromScans(scans: Scan[]): SurfaceCoverage[] {
+  const map = new Map<string, SurfaceCoverage>();
+  for (const s of scans) {
+    const key = `${s.room}::${s.surface}`;
+    const cur = map.get(key);
+    if (!cur) {
+      map.set(key, {
+        room: s.room,
+        surface: s.surface,
+        lastScannedAt: s.capturedAt,
+        scanCount: 1,
+        lastDetections: s.detections,
+      });
+    } else {
+      cur.scanCount += 1;
+      if (s.capturedAt > cur.lastScannedAt) {
+        cur.lastScannedAt = s.capturedAt;
+        cur.lastDetections = s.detections;
+      }
+    }
+  }
+  return [...map.values()];
 }
 
 export function nextBestSurface(

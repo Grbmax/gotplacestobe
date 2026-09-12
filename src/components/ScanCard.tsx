@@ -1,6 +1,7 @@
 "use client";
 
 import { DetectorBadge } from "@/components/DetectorBadge";
+import { escalationSentence, roomSurfaceLabel, thisFrameFlaggedCopy } from "@/lib/labels";
 import type { Scan } from "@/lib/types";
 
 type Props = {
@@ -17,20 +18,17 @@ export function ScanCard({ scan, onSelect, onDelete }: Props) {
         <img src={scan.imageUrl} alt="" className="h-16 w-16 rounded-xl object-cover bg-zinc-800" />
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-2">
-            <p className="truncate text-sm font-medium">
-              {scan.room} / {scan.surface.replace(/_/g, " ")}
-            </p>
+            <p className="truncate text-sm font-medium">{roomSurfaceLabel(scan.room, scan.surface, " / ")}</p>
             <DetectorBadge detector={scan.detector} sample={scan.isSample} />
           </div>
           <p className="mt-1 line-clamp-2 text-xs text-zinc-400">{scan.finding}</p>
           {scan.escalations?.[0] && (
-            <p className="mt-1 text-[11px] text-rose-300">
-              {scan.escalations[0].from} → {scan.escalations[0].to}
+            <p className="mt-1 text-[11px] leading-snug text-rose-300">
+              {escalationSentence(scan.escalations[0])}
             </p>
           )}
-          <p className="mt-2 text-xs text-emerald-300">
-            {(scan.totalAffectedRatio * 100).toFixed(1)}% affected ·{" "}
-            {new Date(scan.capturedAt).toLocaleDateString()}
+          <p className="mt-2 text-xs text-zinc-400">
+            {thisFrameFlaggedCopy(scan.totalAffectedRatio)} · {new Date(scan.capturedAt).toLocaleDateString()}
           </p>
           {scan.scannedByName && <p className="mt-0.5 text-[11px] text-zinc-500">by {scan.scannedByName}</p>}
         </div>
