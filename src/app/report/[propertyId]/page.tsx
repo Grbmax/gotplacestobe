@@ -114,24 +114,39 @@ export default function ReportPage() {
 
       {property && <HouseDashboard context={property.cityContext} scans={scans} />}
 
-      <div className="mt-4 flex items-center gap-2 text-xs text-zinc-400">
-        <span>Review as</span>
-        <select
-          value={role}
-          onChange={(e) => setRole(e.target.value as Review["reviewerRole"])}
-          className="rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1"
-        >
-          <option value="tenant">tenant</option>
-          <option value="owner">owner</option>
-          <option value="inspector">inspector</option>
-        </select>
-      </div>
-
       {error && <p className="mt-3 text-sm text-rose-400">{error}</p>}
 
-      <p className="mt-8 text-[11px] uppercase tracking-[0.18em] text-zinc-500">Photos in this report</p>
+      <div className="mt-6 flex items-end justify-between gap-3">
+        <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">Walkthrough photos</p>
+        <div className="flex items-center gap-2 text-xs text-zinc-400">
+          <span>Review as</span>
+          <select
+            value={role}
+            onChange={(e) => setRole(e.target.value as Review["reviewerRole"])}
+            className="rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1"
+          >
+            <option value="tenant">tenant</option>
+            <option value="owner">owner</option>
+            <option value="inspector">inspector</option>
+          </select>
+        </div>
+      </div>
 
       <div className="mt-3 space-y-10">
+        {groups.length === 0 && (
+          <div className="rounded-2xl border border-dashed border-zinc-700 bg-zinc-900/50 px-4 py-8 text-center">
+            <p className="text-sm font-medium">Scan a surface to start the report</p>
+            <p className="mt-1 text-xs leading-relaxed text-zinc-400">
+              Point the camera at paint, vents, and wet spots. County lead and housing records stay in the banner above.
+            </p>
+            <Link
+              href="/scan"
+              className="mt-4 inline-flex rounded-full bg-emerald-400 px-4 py-2 text-sm font-semibold text-black"
+            >
+              Open camera
+            </Link>
+          </div>
+        )}
         {groups.map((g) => {
           const trend = surfaceTrend(g.scans);
           const badge =
