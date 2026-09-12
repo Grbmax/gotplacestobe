@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { HouseDashboard } from "@/components/HouseDashboard";
 import { CompareView } from "@/components/CompareView";
 import { DetectorBadge } from "@/components/DetectorBadge";
+import { EvidencePrint } from "@/components/EvidencePrint";
 import { ScanCard } from "@/components/ScanCard";
 import { Timeline } from "@/components/Timeline";
 import { civicAlong, surfaceTrend } from "@/lib/progression";
@@ -33,7 +34,7 @@ export default function ReportPage() {
     ]);
     const pData = (await pRes.json()) as { property?: Property };
     let next = pData.property ?? null;
-    if (next && (!next.cityContext || !next.cityContext.areaLead || !next.cityContext.civic)) {
+    if (next && (!next.cityContext || !next.cityContext.areaLead || !next.cityContext.civic || !next.cityContext.leadLine)) {
       const refresh = await fetch(`/api/properties/${propertyId}`, { method: "POST" });
       const rData = (await refresh.json()) as { property?: Property };
       next = rData.property ?? next;
@@ -80,6 +81,10 @@ export default function ReportPage() {
     await load();
   }
 
+  function exportPdf() {
+    window.print();
+  }
+
   if (!property && !error) {
     return <main className="grid min-h-dvh place-items-center text-zinc-400">Loading report…</main>;
   }
@@ -90,14 +95,13 @@ export default function ReportPage() {
         <Link href="/" className="text-xs uppercase tracking-[0.2em] text-emerald-400">
           SCAN
         </Link>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 print:hidden">
           <button
             type="button"
-            disabled
-            title="PDF waits until the walkthrough details are locked"
-            className="rounded-full border border-zinc-700 px-3 py-1.5 text-xs text-zinc-500"
+            onClick={exportPdf}
+            className="rounded-full border border-emerald-500/40 px-3 py-1.5 text-xs text-emerald-200"
           >
-            PDF later
+            Export Legal Evidence PDF
           </button>
           <Link href="/scan" className="rounded-full bg-emerald-400 px-3 py-1.5 text-xs font-semibold text-black">
             Add photos
@@ -138,6 +142,10 @@ export default function ReportPage() {
                 : trend.direction === "stable"
                   ? "bg-zinc-500/20 text-zinc-300"
                   : "bg-zinc-700/40 text-zinc-400";
+          const badgeLabel =
+            trend.direction === "worsening"
+              ? "Worsening — Landlord Inaction"
+              : trend.direction.replace(/_/g, " ");
           return (
             <section key={g.key}>
               <div className="flex items-center justify-between gap-2">
@@ -145,7 +153,7 @@ export default function ReportPage() {
                   {g.room} · {g.surface.replace(/_/g, " ")}
                 </h2>
                 <span className={`rounded-full px-2.5 py-1 text-[10px] uppercase tracking-wider ${badge}`}>
-                  {trend.direction.replace(/_/g, " ")}
+                  {badgeLabel}
                 </span>
               </div>
 
@@ -153,6 +161,7 @@ export default function ReportPage() {
                 <Timeline
                   points={trend.points}
                   civic={civicAlong(trend.points, property?.cityContext?.civic?.monthly)}
+                  direction={trend.direction}
                 />
               </div>
 
@@ -202,6 +211,8 @@ export default function ReportPage() {
           );
         })}
       </div>
+
+      {property && <EvidencePrint property={property} scans={scans} role={role} />}
     </main>
   );
 }

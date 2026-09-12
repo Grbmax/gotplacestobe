@@ -6,6 +6,7 @@ import { DetectorBadge } from "@/components/DetectorBadge";
 import { SurfacePrompt } from "@/components/SurfacePrompt";
 import { Viewfinder } from "@/components/Viewfinder";
 import { KNOWN_SURFACES, nextBestSurface } from "@/lib/nextbest";
+import { citationLines } from "@/lib/articleVi";
 import type { Detection, Property, Scan, SurfaceCoverage } from "@/lib/types";
 
 export default function ScanPage() {
@@ -134,6 +135,11 @@ export default function ScanPage() {
                 <DetectorBadge detector={resultScan.detector} sample={resultScan.isSample} />
               </div>
               <p className="mt-2 text-sm leading-relaxed">{resultScan.finding}</p>
+              {citationLines(resultScan.detections).map((c) => (
+                <p key={c} className="mt-1 text-[11px] leading-snug text-amber-200">
+                  {c}
+                </p>
+              ))}
               {resultScan.escalations?.length ? (
                 <p className="mt-2 text-xs text-rose-300">
                   {resultScan.escalations.map((e) => `${e.from} → ${e.to}`).join(" · ")}

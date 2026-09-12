@@ -23,11 +23,35 @@ export type CivicPulse = {
   monthly: { month: string; count: number }[];
 };
 
+export type GrantCheck = {
+  id: string;
+  label: string;
+  met: boolean | "unknown";
+  detail: string;
+};
+
 export type GrantMatch = {
   eligible: boolean;
   title: string;
   body: string;
   programs: string[];
+  amount: string;
+  applyUrl: string;
+  applyLabel: string;
+  checks: GrantCheck[];
+};
+
+export type LeadLineStatus = {
+  utility: "pwsa" | "pennsylvania_american" | "unknown";
+  utilityLabel: string;
+  publicStatus?: string;
+  privateStatus?: string;
+  isLead: boolean;
+  matched: boolean;
+  summary: string;
+  mapUrl: string;
+  filterUrl: string;
+  filterLabel: string;
 };
 
 export type HousingInspection = {
@@ -83,6 +107,7 @@ export type CityContext = {
   neighborhood?: string;
   leadPaintLikely: boolean;
   leadServiceLine?: boolean;
+  leadLine?: LeadLineStatus;
   leadPaintNote: string;
   areaLead?: AreaLead;
   civic?: CivicPulse;

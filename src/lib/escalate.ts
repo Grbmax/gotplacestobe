@@ -1,6 +1,6 @@
 import type { CityContext, Detection, Escalation, Scan } from "./types";
 
-const HIGH_LEAD_ZIPS = new Set(["15208", "15132", "15210"]);
+export const HIGH_LEAD_ZIPS = new Set(["15208", "15132", "15210"]);
 
 export function escalateDetections(
   detections: Detection[],

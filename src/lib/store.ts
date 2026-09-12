@@ -145,6 +145,7 @@ function asScan(doc: ScanDoc): Scan {
     detector: doc.detector,
     review: doc.review,
     isSample: doc.isSample,
+    escalations: doc.escalations,
   };
 }
 

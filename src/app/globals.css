@@ -19,3 +19,29 @@ body {
 * {
   box-sizing: border-box;
 }
+
+@media print {
+  :root {
+    color-scheme: light;
+  }
+  body {
+    background: #fff !important;
+    color: #18181b !important;
+  }
+  .print\:hidden {
+    display: none !important;
+  }
+  .print-root,
+  .print\:block {
+    display: block !important;
+    color: #18181b;
+  }
+  main > :not(#legal-evidence) {
+    display: none !important;
+  }
+  #legal-evidence figcaption,
+  #legal-evidence p,
+  #legal-evidence li {
+    color: #3f3f46 !important;
+  }
+}
