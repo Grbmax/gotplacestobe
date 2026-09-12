@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { BackLink } from "@/components/BackLink";
 import { HouseDashboard } from "@/components/HouseDashboard";
 import { CompareView } from "@/components/CompareView";
 import { DetectorBadge } from "@/components/DetectorBadge";
@@ -112,9 +113,7 @@ export default function ReportPage() {
   return (
     <main className="mx-auto min-h-dvh max-w-md px-5 pb-16 pt-8 text-white">
       <div className="flex items-center justify-between gap-3">
-        <Link href="/" className="text-xs uppercase tracking-[0.2em] text-emerald-400">
-          SCAN
-        </Link>
+        <BackLink href="/">Houses</BackLink>
         <div className="flex flex-wrap items-center justify-end gap-2 print:hidden">
           <IdentityChip />
           <button
@@ -142,6 +141,14 @@ export default function ReportPage() {
           {scans.length} {scans.length === 1 ? "move-in photo" : "move-in photos"}
         </p>
       </div>
+      <p className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs print:hidden">
+        <Link href={`/scan?propertyId=${propertyId}`} className="text-emerald-400 underline underline-offset-4">
+          Camera
+        </Link>
+        <Link href={`/optimize/${propertyId}`} className="text-zinc-400 underline underline-offset-4">
+          Guided vs. naive
+        </Link>
+      </p>
 
       {(() => {
         const summary = guidedVsNaiveSummary(scans);

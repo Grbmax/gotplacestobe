@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { BackLink } from "@/components/BackLink";
 import { DetectorBadge } from "@/components/DetectorBadge";
 import { SurfacePrompt } from "@/components/SurfacePrompt";
 import { Viewfinder } from "@/components/Viewfinder";
@@ -171,9 +172,9 @@ export default function ScanPage() {
 
       <div className="pointer-events-none absolute inset-x-0 top-0 z-20 space-y-3 p-4">
         <div className="pointer-events-auto flex items-center justify-between gap-2">
-          <Link href="/" className="rounded-full bg-black/55 px-3 py-1.5 text-xs uppercase tracking-wider">
-            SCAN
-          </Link>
+          <BackLink href="/" tone="overlay">
+            Houses
+          </BackLink>
           <div className="flex items-center gap-2">
             {ghostUrl && !resultScan && (
               <button
