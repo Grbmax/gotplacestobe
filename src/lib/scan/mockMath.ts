@@ -71,7 +71,14 @@ export function mockFinding(detections: Detection[]): string {
   }
   const top = [...detections].sort((a, b) => b.confidence - a.confidence)[0]!;
   const label = top.cls.replace(/_/g, " ");
-  return `Preview only — looks like possible ${label} near center-left.`;
+  const [x, y, w, h] = top.bbox;
+  const cx = x + w / 2;
+  const cy = y + h / 2;
+  const col = cx < 1 / 3 ? "left" : cx < 2 / 3 ? "centre" : "right";
+  const row = cy < 1 / 3 ? "top" : cy < 2 / 3 ? "centre" : "bottom";
+  const where = row === "centre" && col === "centre" ? "centre" : `${row}-${col}`;
+  const certainty = top.confidence < 0.5 ? "possible" : top.confidence <= 0.75 ? "likely" : "clear";
+  return `Preview only — ${certainty} ${label}, ${where} — ${(top.areaRatio * 100).toFixed(1)}% of this frame.`;
 }
 
 export function sanitizeDetections(raw: unknown): Detection[] {

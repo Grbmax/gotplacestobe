@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { BoxOverlay } from "@/components/BoxOverlay";
 import { citationLines } from "@/lib/articleVi";
+import { formatScanTime } from "@/lib/time";
 import type { Scan } from "@/lib/types";
 
 export function PhotoEvidence({ scan, className = "" }: { scan: Scan; className?: string }) {
@@ -10,7 +11,7 @@ export function PhotoEvidence({ scan, className = "" }: { scan: Scan; className?
   const cites = citationLines(scan.detections);
   return (
     <figure className={className}>
-      <div className="relative overflow-hidden rounded-xl bg-zinc-800">
+      <div className="relative overflow-hidden rounded-xl bg-slate-100">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={scan.imageUrl}
@@ -28,8 +29,8 @@ export function PhotoEvidence({ scan, className = "" }: { scan: Scan; className?
           className="pointer-events-none absolute inset-0 h-full w-full"
         />
       </div>
-      <figcaption className="mt-1.5 text-[11px] leading-snug text-zinc-400">
-        {new Date(scan.capturedAt).toLocaleString()} · {(scan.totalAffectedRatio * 100).toFixed(1)}% coverage
+      <figcaption className="mt-1.5 text-[11px] leading-snug text-slate-500">
+        {formatScanTime(scan.capturedAt)} · {(scan.totalAffectedRatio * 100).toFixed(1)}% coverage
         {cites[0] ? ` · ${cites[0]}` : ""}
       </figcaption>
     </figure>

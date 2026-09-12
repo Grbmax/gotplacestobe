@@ -12,7 +12,7 @@ export function BackLink({
   const cls =
     tone === "overlay"
       ? "rounded-full bg-black/55 px-3 py-1.5 text-xs text-white"
-      : "text-sm text-emerald-400";
+      : "text-sm text-emerald-700";
   return (
     <Link href={href} className={`inline-flex items-center gap-1 ${cls}`}>
       <span aria-hidden>←</span>

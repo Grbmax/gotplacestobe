@@ -1,9 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import { IdentityContext } from "@/lib/IdentityContext";
 import { clearIdentity, identityIdFromName, loadIdentity, ROLE_BLURB, ROLE_LABEL, ROLES, saveIdentity } from "@/lib/identity";
 import type { Identity, Role } from "@/lib/types";
+
+const INTENDED_KEY = "scan.intendedPath";
 
 type MeResponse =
   | { mode: "lite" }
@@ -25,20 +28,22 @@ function RolePicker({
   onSubmit: (role: Role) => void;
 }) {
   const [role, setRole] = useState<Role | null>(null);
+  const nameEmpty = Boolean(nameField && !nameField.value.trim());
+  const blocked = !role || busy || nameEmpty;
   return (
-    <div className="grid min-h-dvh place-items-center bg-zinc-950 px-5 py-10 text-white">
+    <div className="grid min-h-dvh place-items-center bg-[var(--bg)] px-5 py-10 text-[var(--fg)]">
       <div className="w-full max-w-sm">
-        <p className="text-[11px] uppercase tracking-[0.28em] text-emerald-400">SCAN</p>
+        <p className="text-[11px] uppercase tracking-[0.28em] text-emerald-700">SCAN</p>
         <h1 className="mt-2 text-3xl font-semibold tracking-tight">{title}</h1>
-        <p className="mt-2 text-sm text-zinc-400">{subtitle}</p>
+        <p className="mt-2 text-sm text-slate-500">{subtitle}</p>
 
         {nameField && (
           <input
             value={nameField.value}
             onChange={(e) => nameField.onChange(e.target.value)}
             placeholder="Your name"
-            className="mt-6 w-full rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm outline-none focus:border-emerald-400"
             autoFocus
+            className="mt-6 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-emerald-600"
           />
         )}
 
@@ -50,41 +55,73 @@ function RolePicker({
               onClick={() => setRole(r)}
               className={`w-full rounded-2xl border p-4 text-left transition ${
                 role === r
-                  ? "border-emerald-400 bg-emerald-400/10"
-                  : "border-zinc-800 bg-zinc-900 hover:border-zinc-700"
+                  ? "border-emerald-600 bg-emerald-50"
+                  : "border-slate-200 bg-white hover:border-slate-300"
               }`}
             >
               <p className="font-medium">{ROLE_LABEL[r]}</p>
-              <p className="mt-0.5 text-xs text-zinc-400">{ROLE_BLURB[r]}</p>
+              <p className="mt-0.5 text-xs text-slate-500">{ROLE_BLURB[r]}</p>
             </button>
           ))}
         </div>
 
         <button
           type="button"
-          disabled={!role || busy || (nameField && !nameField.value.trim())}
+          disabled={blocked}
+          aria-disabled={blocked}
           onClick={() => role && onSubmit(role)}
-          className="mt-6 w-full rounded-full bg-emerald-400 py-3.5 text-sm font-semibold text-black disabled:opacity-40"
+          className={`mt-6 w-full rounded-full bg-emerald-600 py-3.5 text-sm font-semibold text-white ${
+            blocked ? "cursor-not-allowed opacity-40" : ""
+          }`}
         >
           {busy ? "One sec…" : "Continue"}
         </button>
-        {!busy && (nameField?.value.trim() === "" || !role) && (
-          <p className="mt-2 text-center text-xs text-zinc-500">
-            {nameField && !nameField.value.trim() ? "Enter a name" : !role ? "Pick a role" : ""}
-            {nameField && !nameField.value.trim() && !role ? " and pick a role" : ""}
-            {" "}to continue
-          </p>
+        {nameEmpty && (
+          <p className="mt-2 text-center text-xs text-slate-500">Enter a name to continue</p>
+        )}
+        {!nameEmpty && !role && !busy && (
+          <p className="mt-2 text-center text-xs text-slate-500">Pick a role to continue</p>
         )}
       </div>
     </div>
   );
 }
 
+function rememberIntended(pathname: string) {
+  if (typeof window === "undefined") return;
+  if (pathname && pathname !== "/") {
+    try {
+      sessionStorage.setItem(INTENDED_KEY, pathname + window.location.search);
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+function restoreIntended(router: ReturnType<typeof useRouter>) {
+  if (typeof window === "undefined") return;
+  try {
+    const intended = sessionStorage.getItem(INTENDED_KEY);
+    if (intended && intended !== window.location.pathname + window.location.search) {
+      sessionStorage.removeItem(INTENDED_KEY);
+      router.replace(intended);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
 export function IdentityGate({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const router = useRouter();
   const [me, setMe] = useState<MeResponse | "loading">("loading");
   const [liteIdentity, setLiteIdentity] = useState<Identity | null>(null);
-  const [liteName, setLiteName] = useState("");
+  const [liteName, setLiteName] = useState("Judge");
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    rememberIntended(pathname);
+  }, [pathname]);
 
   useEffect(() => {
     void fetch("/api/identity/me", { cache: "no-store" })
@@ -111,6 +148,7 @@ export function IdentityGate({ children }: { children: React.ReactNode }) {
             const identity: Identity = { id: identityIdFromName(liteName), name: liteName.trim(), role };
             saveIdentity(identity);
             setLiteIdentity(identity);
+            restoreIntended(router);
           }}
         />
       );
@@ -134,16 +172,16 @@ export function IdentityGate({ children }: { children: React.ReactNode }) {
   // Auth0 mode, not signed in.
   if (!me.loggedIn) {
     return (
-      <div className="grid min-h-dvh place-items-center bg-zinc-950 px-5 text-center text-white">
+      <div className="grid min-h-dvh place-items-center bg-[var(--bg)] px-5 text-center text-[var(--fg)]">
         <div>
-          <p className="text-[11px] uppercase tracking-[0.28em] text-emerald-400">SCAN</p>
+          <p className="text-[11px] uppercase tracking-[0.28em] text-emerald-700">SCAN</p>
           <h1 className="mt-2 text-3xl font-semibold tracking-tight">Sign in to continue</h1>
-          <p className="mx-auto mt-2 max-w-xs text-sm text-zinc-400">
+          <p className="mx-auto mt-2 max-w-xs text-sm text-slate-500">
             One account, one role — renter, landlord, or inspector — so the app only shows you what&apos;s yours.
           </p>
           <a
             href="/auth/login"
-            className="mt-6 inline-block rounded-full bg-emerald-400 px-8 py-3.5 text-sm font-semibold text-black"
+            className="mt-6 inline-block rounded-full bg-emerald-600 px-8 py-3.5 text-sm font-semibold text-white"
           >
             Sign in
           </a>
@@ -168,6 +206,7 @@ export function IdentityGate({ children }: { children: React.ReactNode }) {
               body: JSON.stringify({ role }),
             });
             setMe({ mode: "auth0", loggedIn: true, needsRole: false, identity: { id: me.id, name: me.name, role } });
+            restoreIntended(router);
           } finally {
             setBusy(false);
           }

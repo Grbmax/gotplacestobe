@@ -32,6 +32,10 @@ type Group = {
   scans: Scan[];
 };
 
+function isModelScan(scan: Scan) {
+  return scan.detector !== "mock";
+}
+
 export default function ReportPage() {
   const params = useParams<{ propertyId: string }>();
   const propertyId = params.propertyId;
@@ -42,6 +46,7 @@ export default function ReportPage() {
   const [overrideRole, setOverrideRole] = useState<Review["reviewerRole"]>(identity.role);
   const role = reviewingAsSelf ? identity.role : overrideRole;
   const [error, setError] = useState<string | null>(null);
+  const [modelOnly, setModelOnly] = useState(true);
 
   const load = useCallback(async () => {
     const [pRes, sRes] = await Promise.all([
@@ -64,30 +69,30 @@ export default function ReportPage() {
     void load().catch(() => setError("Could not load report"));
   }, [load]);
 
+  const visibleScans = useMemo(
+    () => (modelOnly ? scans.filter(isModelScan) : scans),
+    [scans, modelOnly],
+  );
+
   const groups = useMemo(() => {
     const map = new Map<string, Group>();
-    for (const s of scans) {
+    for (const s of visibleScans) {
       const key = `${s.room}::${s.surface}`;
       const g = map.get(key);
       if (!g) map.set(key, { key, room: s.room, surface: s.surface, scans: [s] });
       else g.scans.push(s);
     }
-    // Worsening surfaces first (that's the actual news), then by how severe the
-    // latest reading is — alphabetical-by-key was burying the one worsening,
-    // high-confidence finding three-quarters down the page under a wall of
-    // "Improving" groups whose "before" was a real detection and "after" was
-    // an unrelated mock reading.
     const directionRank: Record<string, number> = { worsening: 0, insufficient_data: 1, stable: 2, improving: 3 };
     return [...map.values()].sort((a, b) => {
       const ta = surfaceTrend(a.scans);
       const tb = surfaceTrend(b.scans);
       const rankDiff = directionRank[ta.direction] - directionRank[tb.direction];
       if (rankDiff !== 0) return rankDiff;
-      const severityA = ta.latest?.totalAffectedRatio ?? 0;
-      const severityB = tb.latest?.totalAffectedRatio ?? 0;
-      return severityB - severityA;
+      const peakA = Math.max(0, ...a.scans.map((s) => s.totalAffectedRatio));
+      const peakB = Math.max(0, ...b.scans.map((s) => s.totalAffectedRatio));
+      return peakB - peakA;
     });
-  }, [scans]);
+  }, [visibleScans]);
 
   async function review(scanId: string, verdict: Review["verdict"]) {
     const res = await fetch(`/api/scans/${scanId}/review`, {
@@ -121,11 +126,13 @@ export default function ReportPage() {
   }
 
   if (!property && !error) {
-    return <main className="grid min-h-dvh place-items-center text-zinc-400">Loading report…</main>;
+    return <main className="grid min-h-dvh place-items-center text-slate-500">Loading report…</main>;
   }
 
+  const photoCount = visibleScans.length;
+
   return (
-    <main className="mx-auto min-h-dvh max-w-md px-5 pb-16 pt-8 text-white">
+    <main className="mx-auto min-h-dvh max-w-md px-5 pb-16 pt-8 text-slate-900">
       <div className="flex items-center justify-between gap-3">
         <BackLink href="/">Houses</BackLink>
         <div className="flex flex-wrap items-center justify-end gap-2 print:hidden">
@@ -133,7 +140,7 @@ export default function ReportPage() {
           <button
             type="button"
             onClick={exportPdf}
-            className="rounded-full border border-emerald-500/40 px-3 py-1.5 text-xs text-emerald-200"
+            className="rounded-full border border-emerald-600/40 px-3 py-1.5 text-xs text-emerald-800"
           >
             Export PDF
           </button>
@@ -142,17 +149,17 @@ export default function ReportPage() {
 
       <h1 className="mt-4 text-3xl font-semibold tracking-tight">{property?.label ?? "Unknown"}</h1>
       <div className="mt-1 flex items-center justify-between gap-2">
-        <p className="text-sm text-zinc-400">
+        <p className="text-sm text-slate-500">
           {property ? kindLabel(property.kind) : ""}
           {property?.unit ? ` · Apt ${property.unit}` : ""}
           {property ? " · " : ""}
-          {scans.length} {scans.length === 1 ? "move-in photo" : "move-in photos"}
+          {photoCount} {photoCount === 1 ? "move-in photo" : "move-in photos"}
         </p>
       </div>
 
       <Link
         href={`/scan?propertyId=${propertyId}`}
-        className="mt-5 block rounded-full bg-emerald-400 py-4 text-center text-lg font-semibold text-black print:hidden"
+        className="mt-5 block rounded-full bg-emerald-600 py-4 text-center text-lg font-semibold text-white print:hidden"
       >
         Add photo
       </Link>
@@ -163,16 +170,14 @@ export default function ReportPage() {
           return (
             <Link
               href={`/optimize/${propertyId}`}
-              className="mt-4 block rounded-2xl border border-emerald-400/30 bg-emerald-400/10 p-4"
+              className="mt-4 block rounded-2xl border border-emerald-200 bg-emerald-50 p-4"
             >
-              <p className="text-[11px] uppercase tracking-[0.18em] text-emerald-300">Guided vs. naive</p>
-              <p className="mt-2 text-sm leading-relaxed text-emerald-100">{summary.sentence}</p>
-              <p className="mt-2 text-xs text-emerald-300">See the chart →</p>
+              <p className="text-[11px] uppercase tracking-[0.18em] text-emerald-700">Guided vs. naive</p>
+              <p className="mt-2 text-sm leading-relaxed text-emerald-950">{summary.sentence}</p>
+              <p className="mt-2 text-xs text-emerald-700">See the chart →</p>
             </Link>
           );
         }
-        // Not enough data yet for a real comparison — still link through instead of
-        // vanishing entirely, so the feature isn't only reachable by typing the URL.
         const total = totalDistinctDefects(scans);
         const hint =
           scans.length < 3
@@ -183,26 +188,28 @@ export default function ReportPage() {
         return (
           <Link
             href={`/optimize/${propertyId}`}
-            className="mt-4 block rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4"
+            className="mt-4 block rounded-2xl border border-slate-200 bg-white p-4"
           >
-            <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">Guided vs. naive</p>
-            <p className="mt-2 text-sm leading-relaxed text-zinc-400">{hint}</p>
+            <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Guided vs. naive</p>
+            <p className="mt-2 text-sm leading-relaxed text-slate-500">{hint}</p>
           </Link>
         );
       })()}
 
-      {property && <HouseDashboard context={property.cityContext} scans={scans} />}
+      {property && (
+        <HouseDashboard context={property.cityContext} scans={scans} addressLabel={property.label} />
+      )}
 
-      <div className="mt-4 text-xs text-zinc-400">
+      <div className="mt-4 text-xs text-slate-500">
         {reviewingAsSelf ? (
           <div className="flex items-center gap-2">
             <span>
-              Reviewing as <span className="text-zinc-200">{identity.name}</span> ({ROLE_LABEL[identity.role]})
+              Reviewing as <span className="text-slate-800">{identity.name}</span> ({ROLE_LABEL[identity.role]})
             </span>
             <button
               type="button"
               onClick={() => setReviewingAsSelf(false)}
-              className="underline underline-offset-2 text-zinc-500"
+              className="underline underline-offset-2 text-slate-400"
             >
               not you?
             </button>
@@ -210,11 +217,11 @@ export default function ReportPage() {
         ) : (
           <div>
             <div className="flex items-center justify-between gap-2">
-              <p className="text-zinc-500">Review as</p>
+              <p className="text-slate-500">Review as</p>
               <button
                 type="button"
                 onClick={() => setReviewingAsSelf(true)}
-                className="underline underline-offset-2 text-zinc-500"
+                className="underline underline-offset-2 text-slate-400"
               >
                 use my role
               </button>
@@ -230,8 +237,8 @@ export default function ReportPage() {
                     aria-pressed={selected}
                     className={
                       selected
-                        ? "rounded-xl border border-emerald-400 bg-emerald-400/10 py-2 text-xs font-medium text-emerald-300"
-                        : "rounded-xl border border-zinc-700 bg-zinc-950 py-2 text-xs text-zinc-300"
+                        ? "rounded-xl border border-emerald-600 bg-emerald-50 py-2 text-xs font-medium text-emerald-800"
+                        : "rounded-xl border border-slate-200 bg-white py-2 text-xs text-slate-600"
                     }
                   >
                     {item.label}
@@ -243,16 +250,33 @@ export default function ReportPage() {
         )}
       </div>
 
-      {error && <p className="mt-3 text-sm text-rose-400">{error}</p>}
+      {error && <p className="mt-3 text-sm text-rose-600">{error}</p>}
 
-      <p className="mt-6 text-[11px] uppercase tracking-[0.18em] text-zinc-500">Walkthrough photos</p>
+      <div className="mt-6 flex items-center justify-between gap-3">
+        <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Surfaces</p>
+        <label className="flex items-center gap-2 text-xs text-slate-600">
+          <input
+            type="checkbox"
+            checked={modelOnly}
+            onChange={(e) => setModelOnly(e.target.checked)}
+            className="accent-emerald-600"
+          />
+          Model detections only
+        </label>
+      </div>
 
       <div className="mt-3 space-y-10">
         {groups.length === 0 && (
-          <div className="rounded-2xl border border-dashed border-zinc-700 bg-zinc-900/50 px-4 py-8 text-center">
-            <p className="text-sm font-medium">Scan a surface to start the report</p>
-            <p className="mt-1 text-xs leading-relaxed text-zinc-400">
-              Point the camera at paint, vents, and wet spots. County lead and housing records stay in the banner above.
+          <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-8 text-center">
+            <p className="text-sm font-medium">
+              {modelOnly && scans.length > 0
+                ? "No model detections in this report"
+                : "Scan a surface to start the report"}
+            </p>
+            <p className="mt-1 text-xs leading-relaxed text-slate-500">
+              {modelOnly && scans.length > 0
+                ? "Turn off the filter to see frames where no model ran."
+                : "Point the camera at paint, vents, and wet spots. County lead and housing records stay in the banner above."}
             </p>
           </div>
         )}
@@ -260,12 +284,12 @@ export default function ReportPage() {
           const trend = surfaceTrend(g.scans);
           const badge =
             trend.direction === "worsening"
-              ? "bg-rose-500/20 text-rose-300"
+              ? "bg-rose-100 text-rose-700"
               : trend.direction === "improving"
-                ? "bg-emerald-500/20 text-emerald-300"
+                ? "bg-emerald-100 text-emerald-700"
                 : trend.direction === "stable"
-                  ? "bg-zinc-500/20 text-zinc-300"
-                  : "bg-zinc-700/40 text-zinc-400";
+                  ? "bg-slate-100 text-slate-600"
+                  : "bg-slate-100 text-slate-500";
           const badgeLabel =
             trend.direction === "worsening" ? "Worsening — Landlord Inaction" : trendLabel(trend.direction);
           return (
@@ -299,27 +323,27 @@ export default function ReportPage() {
                     <li key={scan.id} className="space-y-2">
                       <ScanCard scan={scan} onDelete={() => void removePhoto(scan.id)} />
                       {!scan.review ? (
-                        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2">
-                          <p className="text-xs text-amber-200">Unreviewed — not a claim.</p>
+                        <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
+                          <p className="text-xs text-amber-900">Unreviewed — not a claim.</p>
                           <div className="mt-2 flex gap-2">
                             <button
                               type="button"
                               onClick={() => void review(scan.id, "confirmed")}
-                              className="flex-1 rounded-full bg-emerald-400 py-2 text-xs font-semibold text-black"
+                              className="min-h-11 flex-1 rounded-full bg-emerald-600 py-2 text-xs font-semibold text-white"
                             >
                               Confirm
                             </button>
                             <button
                               type="button"
                               onClick={() => void review(scan.id, "disputed")}
-                              className="flex-1 rounded-full border border-zinc-600 py-2 text-xs"
+                              className="min-h-11 flex-1 rounded-full border border-slate-300 py-2 text-xs"
                             >
                               Dispute
                             </button>
                           </div>
                         </div>
                       ) : (
-                        <p className="px-1 text-xs text-zinc-500">
+                        <p className="px-1 text-xs text-slate-500">
                           {verdictLabel(scan.review.verdict)} by{" "}
                           {scan.review.reviewerName ?? roleLabel(scan.review.reviewerRole)} ·{" "}
                           <DetectorBadge detector={scan.detector} sample={scan.isSample} degraded={scan.degraded} />

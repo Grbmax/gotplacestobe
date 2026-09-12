@@ -10,11 +10,11 @@ export function IdentityChip({ className = "" }: { className?: string }) {
     <button
       type="button"
       onClick={switchIdentity}
-      className={`inline-flex items-center gap-1.5 rounded-full bg-black/55 px-3 py-1.5 text-xs text-zinc-200 ${className}`}
+      className={`inline-flex max-w-[11rem] items-center gap-1.5 whitespace-nowrap rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-700 ${className}`}
       title="Switch identity"
     >
-      <span className="font-medium">{identity.name || "You"}</span>
-      <span className="text-emerald-400">· {ROLE_LABEL[identity.role]}</span>
+      <span className="min-w-0 truncate font-medium">{identity.name || "You"}</span>
+      <span className="shrink-0 text-emerald-700">· {ROLE_LABEL[identity.role]}</span>
     </button>
   );
 }

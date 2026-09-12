@@ -87,11 +87,11 @@ export function severityFromRatio(ratio: number | null, worsening = false): Seve
 export function severityTextClass(severity: Severity) {
   switch (severity) {
     case "elevated":
-      return "text-rose-400";
+      return "text-rose-600";
     case "watch":
-      return "text-amber-300";
+      return "text-amber-700";
     case "clean":
-      return "text-emerald-300";
+      return "text-emerald-700";
   }
 }
 

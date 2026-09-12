@@ -131,7 +131,7 @@ export function dashboardTiles(context: CityContext | undefined, scans: Scan[]):
   tiles.push({
     id: "file",
     tone: openish.length ? "rose" : fileCount ? "amber" : "green",
-    kicker: "County file",
+    kicker: "Allegheny County record",
     title: fileCount
       ? `${fileCount} ACHD housing record${fileCount === 1 ? "" : "s"}`
       : "No ACHD housing inspections matched",
@@ -195,7 +195,7 @@ export function dashboardTiles(context: CityContext | undefined, scans: Scan[]):
   const overall = tiles.reduce((acc, t) => louder(acc, t.tone), "green" as Tone);
   const headline =
     overall === "rose"
-      ? "Pay attention here"
+      ? "Conditions need attention"
       : overall === "amber"
         ? "A few things to check"
         : overall === "green"

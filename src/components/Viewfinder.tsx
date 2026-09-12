@@ -200,7 +200,7 @@ export function Viewfinder({
               <button
                 type="button"
                 onClick={startCamera}
-                className="rounded-full bg-emerald-400 px-6 py-3 text-sm font-semibold text-black"
+                className="rounded-full bg-emerald-600 px-6 py-3 text-sm font-semibold text-white"
               >
                 Retry camera
               </button>

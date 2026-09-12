@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { BackLink } from "@/components/BackLink";
+import { IdentityChip } from "@/components/IdentityChip";
 import { OptimizeChart } from "@/components/OptimizeChart";
 import { roomSurfaceLabel } from "@/lib/labels";
 import { coverageFromScans, nextBestSurface } from "@/lib/nextbest";
@@ -44,28 +45,31 @@ export default function OptimizePage() {
   }, [scans, property]);
 
   if (!loaded) {
-    return <main className="grid min-h-dvh place-items-center text-sm text-zinc-500">Loading…</main>;
+    return <main className="grid min-h-dvh place-items-center text-sm text-slate-500">Loading…</main>;
   }
 
   return (
-    <main className="mx-auto min-h-dvh max-w-md px-5 pb-16 pt-8 text-white">
+    <main className="mx-auto min-h-dvh max-w-md px-5 pb-16 pt-8 text-slate-900">
       <div className="flex items-center justify-between gap-3">
         <BackLink href={`/report/${propertyId}`}>Report</BackLink>
+        <IdentityChip />
       </div>
 
       <h1 className="mt-4 text-3xl font-semibold tracking-tight">Guided vs. naive</h1>
-      <p className="mt-1 text-sm text-zinc-400">{property?.label ?? "This property"} · {scans.length} photos</p>
+      <p className="mt-1 text-sm text-slate-500">
+        {property?.label ?? "This property"} · {scans.length} photos
+      </p>
 
       {scans.length < 3 || total === 0 ? (
-        <div className="mt-10 rounded-2xl border border-dashed border-zinc-800 p-6 text-center">
-          <p className="text-sm text-zinc-400">Not enough scans yet.</p>
-          <p className="mt-2 text-sm text-zinc-200">Photograph the {nextShot} next.</p>
-          <p className="mt-2 text-xs text-zinc-500">
+        <div className="mt-10 rounded-2xl border border-dashed border-slate-300 p-6 text-center">
+          <p className="text-sm text-slate-500">Not enough scans yet.</p>
+          <p className="mt-2 text-sm text-slate-800">Photograph the {nextShot} next.</p>
+          <p className="mt-2 text-xs text-slate-500">
             Take a few photos across different surfaces — some with real findings — to compare guided vs. naive.
           </p>
           <Link
             href={`/scan?propertyId=${propertyId}`}
-            className="mt-5 inline-block rounded-full bg-emerald-400 px-5 py-2.5 text-sm font-semibold text-black"
+            className="mt-5 inline-block rounded-full bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white"
           >
             Take that photo
           </Link>
@@ -79,19 +83,19 @@ export default function OptimizePage() {
           <button
             type="button"
             onClick={() => setShowNaive((v) => !v)}
-            className="mt-3 w-full rounded-full border border-zinc-700 py-2.5 text-xs text-zinc-300"
+            className="mt-3 w-full rounded-full border border-slate-300 py-2.5 text-xs text-slate-600"
           >
             {showNaive ? "Hide naive line" : "Show naive line"}
           </button>
 
-          <div className="mt-6 rounded-2xl border border-emerald-400/30 bg-emerald-400/10 p-4">
-            <p className="text-sm leading-relaxed text-emerald-100">{summary?.sentence}</p>
+          <div className="mt-6 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+            <p className="text-sm leading-relaxed text-emerald-950">{summary?.sentence}</p>
           </div>
 
-          <p className="mt-4 text-xs text-zinc-500">
+          <p className="mt-4 text-xs text-slate-500">
             Guided order re-runs the real next-best-capture planner over these same photos, step by step, as if you&apos;d
-            followed it from the start. Naive is the order they were actually captured in. Same photos, same defects
-            — only the order changes.
+            followed it from the start. Naive photographs lowest-risk surfaces first — the opposite of the planner. Same
+            photos, same defects — only the order changes.
           </p>
         </>
       )}
