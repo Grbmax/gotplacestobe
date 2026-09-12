@@ -1,6 +1,7 @@
 import { persistImage } from "./blob";
 import { hasMongo, getDb } from "./db";
 import { runDetect } from "./detect";
+import { getTrainingFrameBytes, saveTrainingFrame } from "./frames";
 import { totalAffectedRatio } from "./mockMath";
 import type { Property, Review, Role, Scan, SurfaceCoverage } from "./types";
 
@@ -249,6 +250,13 @@ export async function getScanImage(
   id: string,
 ): Promise<{ kind: "url"; url: string } | { kind: "bytes"; contentType: string; bytes: Buffer } | null> {
   await ensureSeed();
+
+  // Prefer the training `frames` collection (binary) over inline scan.imageUrl.
+  const fromFrames = await getTrainingFrameBytes(id);
+  if (fromFrames) {
+    return { kind: "bytes", contentType: fromFrames.contentType, bytes: fromFrames.bytes };
+  }
+
   let imageUrl: string | undefined;
   if (!hasMongo()) {
     imageUrl = mem.scans.find((s) => s.id === id)?.imageUrl;
@@ -264,6 +272,9 @@ export async function getScanImage(
   if (imageUrl.startsWith("http://") || imageUrl.startsWith("https://")) {
     return { kind: "url", url: imageUrl };
   }
+  if (imageUrl.startsWith("/api/scans/") && imageUrl.endsWith("/image")) {
+    return null;
+  }
   const match = /^data:(image\/[\w+.-]+);base64,(.+)$/i.exec(imageUrl);
   if (!match) return null;
   return {
@@ -278,6 +289,7 @@ export async function createScan(input: {
   room: string;
   surface: string;
   image: string;
+  source?: "capture" | "upload";
   scannedBy?: string;
   scannedByName?: string;
 }): Promise<{ scan: Scan } | { error: string }> {
@@ -290,15 +302,38 @@ export async function createScan(input: {
     return { error: "Create your own property before scanning — the sample one is demo data only" };
   }
 
+  const scanId = id("scan");
   const detected = await runDetect(input.image);
-  const imageUrl = await persistImage(input.image, id("img"));
-  const scan: Scan = {
-    id: id("scan"),
+  const capturedAt = new Date().toISOString();
+  const room = input.room.trim() || "room";
+  const surface = input.surface.trim() || "surface";
+
+  // Archive the original frame + labels in Mongo `frames` for future training.
+  await saveTrainingFrame({
+    scanId,
     propertyId: input.propertyId,
-    room: input.room.trim() || "room",
-    surface: input.surface.trim() || "surface",
+    room,
+    surface,
+    imageDataUrl: input.image,
+    detections: detected.detections,
+    finding: detected.finding,
+    detector: detected.detector,
+    capturedAt,
+    source: input.source ?? "capture",
+    scannedBy: input.scannedBy,
+    scannedByName: input.scannedByName,
+  });
+
+  const persisted = await persistImage(input.image, scanId);
+  const imageUrl = persisted.startsWith("data:") ? `/api/scans/${scanId}/image` : persisted;
+
+  const scan: Scan = {
+    id: scanId,
+    propertyId: input.propertyId,
+    room,
+    surface,
     imageUrl,
-    capturedAt: new Date().toISOString(),
+    capturedAt,
     detections: detected.detections,
     totalAffectedRatio: totalAffectedRatio(detected.detections),
     finding: detected.finding,
@@ -308,11 +343,12 @@ export async function createScan(input: {
   };
 
   if (!hasMongo()) {
-    mem.scans.unshift(scan);
-    return { scan: { ...scan, imageUrl: clientImageUrl(scan.id, scan.imageUrl) } };
+    mem.scans.unshift({ ...scan, imageUrl: input.image });
+    return { scan: { ...scan, imageUrl: clientImageUrl(scan.id, input.image) } };
   }
   const db = await getDb();
-  const { id: scanId, ...rest } = scan;
+  const { id: ignoredId, ...rest } = scan;
+  void ignoredId;
   await db.collection<ScanDoc>("scans").insertOne({ _id: scanId, ...rest });
   return { scan: { ...scan, imageUrl: clientImageUrl(scan.id, scan.imageUrl) } };
 }
