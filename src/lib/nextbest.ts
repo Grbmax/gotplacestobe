@@ -102,7 +102,7 @@ export function coverageFromScans(scans: Scan[]): SurfaceCoverage[] {
       });
     } else {
       cur.scanCount += 1;
-      if (s.capturedAt > cur.lastScannedAt) {
+      if (!cur.lastScannedAt || s.capturedAt > cur.lastScannedAt) {
         cur.lastScannedAt = s.capturedAt;
         cur.lastDetections = s.detections;
       }

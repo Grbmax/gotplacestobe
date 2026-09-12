@@ -49,6 +49,8 @@ export function BoxOverlay({ detections, width, height, className, labeled = tru
           }
 
           const color = COLORS[d.cls] ?? "#fff";
+          // Don't paint weak % labels — they read as confident claims.
+          if (d.confidence < 0.55) continue;
           ctx.strokeStyle = color;
           ctx.lineWidth = 2;
           ctx.strokeRect(x, y, w, h);
