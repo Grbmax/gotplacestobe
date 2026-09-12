@@ -184,9 +184,18 @@ function asScan(doc: ScanDoc): Scan {
   };
 }
 
+let consolidatedThisInstance = false;
+
 export async function listProperties(): Promise<Property[]> {
   await ensureSeed();
-  await consolidateDuplicateHouses();
+  // This sweep does O(duplicate groups) Mongo round-trips (listScans + reassign + delete
+  // per extra property) — fine once, but it was running on every single property read,
+  // including inside createProperty's own dedup check, so it compounded with every test
+  // property created tonight and made basic page loads hang. Once per server instance.
+  if (!consolidatedThisInstance) {
+    await consolidateDuplicateHouses();
+    consolidatedThisInstance = true;
+  }
   if (!hasMongo()) return [...mem.properties].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const db = await getDb();
   const docs = await db.collection<PropertyDoc>("properties").find({}).sort({ createdAt: -1 }).toArray();
