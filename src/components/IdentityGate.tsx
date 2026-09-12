@@ -4,16 +4,19 @@ import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { IdentityContext } from "@/lib/IdentityContext";
 import { BottomNav } from "@/components/BottomNav";
+import { GoogleSignInButton } from "@/components/GoogleSignInButton";
 import { clearIdentity, identityIdFromName, loadIdentity, ROLE_BLURB, ROLE_LABEL, ROLES, saveIdentity } from "@/lib/identity";
 import type { Identity, Role } from "@/lib/types";
 
 const INTENDED_KEY = "scan.intendedPath";
 
+type AccountMode = "auth0" | "google";
+
 type MeResponse =
   | { mode: "lite" }
-  | { mode: "auth0"; loggedIn: false }
-  | { mode: "auth0"; loggedIn: true; needsRole: true; id: string; name: string }
-  | { mode: "auth0"; loggedIn: true; needsRole: false; identity: Identity };
+  | { mode: AccountMode; loggedIn: false; clientId?: string }
+  | { mode: AccountMode; loggedIn: true; needsRole: true; id: string; name: string; clientId?: string }
+  | { mode: AccountMode; loggedIn: true; needsRole: false; identity: Identity; clientId?: string };
 
 function RolePicker({
   title,
@@ -32,7 +35,7 @@ function RolePicker({
   const nameEmpty = Boolean(nameField && !nameField.value.trim());
   const blocked = !role || busy || nameEmpty;
   return (
-    <div className="grid min-h-dvh place-items-center bg-[var(--bg)] px-5 py-10 text-[var(--fg)]">
+    <div className="grid min-h-dvh place-items-center px-5 py-10 text-[var(--fg)]">
       <div className="w-full max-w-sm">
         <p className="text-[11px] font-medium tracking-[0.12em] text-emerald-700">CribCheck</p>
         <h1 className="mt-2 text-3xl font-semibold tracking-tight">{title}</h1>
@@ -171,32 +174,39 @@ export function IdentityGate({ children }: { children: React.ReactNode }) {
     );
   }
 
-  // Auth0 mode, not signed in.
+  // Google / Auth0, not signed in.
   if (!me.loggedIn) {
     return (
-      <div className="grid min-h-dvh place-items-center bg-[var(--bg)] px-5 text-center text-[var(--fg)]">
+      <div className="grid min-h-dvh place-items-center px-5 text-center text-[var(--fg)]">
         <div>
           <p className="text-[11px] font-medium tracking-[0.12em] text-emerald-700">CribCheck</p>
           <h1 className="mt-2 text-3xl font-semibold tracking-tight">Sign in to continue</h1>
           <p className="mx-auto mt-2 max-w-xs text-sm text-slate-500">
-            One account, one role — renter, landlord, or inspector — so the app only shows you what&apos;s yours.
+            Use your Google name on scans and reports — then pick renter, landlord, or inspector once.
           </p>
-          <a
-            href="/auth/login"
-            className="mt-6 inline-block rounded-full bg-emerald-600 px-8 py-3.5 text-sm font-semibold text-white"
-          >
-            Sign in
-          </a>
+          <div className="mt-8 flex justify-center">
+            {me.mode === "google" && me.clientId ? (
+              <GoogleSignInButton clientId={me.clientId} />
+            ) : (
+              <a
+                href="/auth/login"
+                className="inline-block rounded-full bg-emerald-600 px-8 py-3.5 text-sm font-semibold text-white"
+              >
+                Sign in
+              </a>
+            )}
+          </div>
         </div>
       </div>
     );
   }
 
-  // Auth0 mode, signed in, first time — pick a role once.
+  // Signed in, first time — pick a role once. Name comes from Google / Auth0.
   if (me.needsRole) {
+    const first = me.name.split(" ")[0] || me.name;
     return (
       <RolePicker
-        title={`Hi, ${me.name.split(" ")[0]}`}
+        title={`Hi, ${first}`}
         subtitle="Pick the role that fits — you can't be all three at once, and that's the point."
         busy={busy}
         onSubmit={async (role) => {
@@ -207,7 +217,13 @@ export function IdentityGate({ children }: { children: React.ReactNode }) {
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ role }),
             });
-            setMe({ mode: "auth0", loggedIn: true, needsRole: false, identity: { id: me.id, name: me.name, role } });
+            setMe({
+              mode: me.mode,
+              loggedIn: true,
+              needsRole: false,
+              identity: { id: me.id, name: me.name, role },
+              clientId: me.clientId,
+            });
             restoreIntended(router);
           } finally {
             setBusy(false);
@@ -221,8 +237,14 @@ export function IdentityGate({ children }: { children: React.ReactNode }) {
     <IdentityContext.Provider
       value={{
         identity: me.identity,
-        authMode: "auth0",
+        authMode: me.mode,
         switchIdentity: () => {
+          if (me.mode === "google") {
+            void fetch("/api/identity/google", { method: "DELETE" }).finally(() => {
+              window.location.reload();
+            });
+            return;
+          }
           window.location.href = "/auth/logout";
         },
       }}

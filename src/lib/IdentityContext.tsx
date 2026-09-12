@@ -5,7 +5,7 @@ import type { Identity } from "./types";
 
 type IdentityContextValue = {
   identity: Identity;
-  authMode: "lite" | "auth0";
+  authMode: "lite" | "auth0" | "google";
   switchIdentity: () => void;
 };
 

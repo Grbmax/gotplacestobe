@@ -12,17 +12,15 @@
   --accent: #0284c7;
 }
 
-html,
-body {
-  height: 100%;
+html {
+  min-height: 100%;
+  background-color: var(--bg);
 }
 
 body {
   margin: 0;
-  background:
-    radial-gradient(1200px 600px at 10% -10%, rgba(2, 132, 199, 0.12), transparent 55%),
-    radial-gradient(900px 500px at 100% 0%, rgba(5, 150, 105, 0.14), transparent 50%),
-    var(--bg);
+  min-height: 100dvh;
+  background-color: var(--bg);
   color: var(--fg);
   font-family:
     "Segoe UI",

@@ -40,8 +40,8 @@ function isStreetAddress(label: string) {
 }
 
 const HINT: Record<string, string> = {
-  tenant: "Houses is the file. Scan, Report, and Proof each ask which address first.",
-  owner: "Tap a house to review it. Scan / Report / Proof still ask which address.",
+  tenant: "Houses is the file. Scan and Report each ask which address first.",
+  owner: "Tap a house to review it. Scan and Report still ask which address.",
   inspector: "Select a file here, or open Report and pick the address you are signing.",
 };
 

@@ -5,15 +5,14 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState, type ReactNode } from "react";
 import { lastHouse, rememberHouse, onHouseChange } from "@/lib/activeHouse";
 
-type Tab = "houses" | "scan" | "report" | "proof";
+type Tab = "houses" | "scan" | "report";
 
-function tabFromPath(pathname: string): Tab | null {
-  if (pathname.startsWith("/inspect")) return null;
+function tabFromPath(pathname: string): Tab | "hidden" | null {
+  if (pathname.startsWith("/inspect")) return "hidden";
   if (pathname.startsWith("/scan")) return "scan";
   if (pathname.startsWith("/report")) return "report";
-  if (pathname.startsWith("/optimize")) return "proof";
   if (pathname === "/") return "houses";
-  return "houses";
+  return null;
 }
 
 function houseFromPath(pathname: string, search: string) {
@@ -45,17 +44,8 @@ function IconScan({ on }: { on: boolean }) {
 function IconReport({ on }: { on: boolean }) {
   return (
     <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
-      <path d="M7 3.5h7.5L20 9v11.5H7A1.5 1.5 0 0 1 5.5 19V5A1.5 1.5 0 0 1 7 3.5Z" className={on ? "fill-current/20" : ""} />
+      <path d="M7 3.5h7.5L20 9v11.5H7A1.5 1.5 0 0 1 7 3.5Z" className={on ? "fill-current/20" : ""} />
       <path d="M14.5 3.5V9H20M8.5 13h7M8.5 16.5h5" />
-    </svg>
-  );
-}
-
-function IconProof({ on }: { on: boolean }) {
-  return (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
-      <path d="M4 16.5 9 11l3.5 3.5L20 7" strokeLinejoin="round" />
-      <path d="M4 20h16" className={on ? "" : "opacity-70"} />
     </svg>
   );
 }
@@ -63,7 +53,7 @@ function IconProof({ on }: { on: boolean }) {
 function BottomNavInner() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const [houseId, setHouseId] = useState<string | null>(null);
+  const [, setHouseId] = useState<string | null>(null);
   const active = tabFromPath(pathname);
 
   useEffect(() => {
@@ -76,22 +66,16 @@ function BottomNavInner() {
     return onHouseChange(sync);
   }, [pathname, searchParams]);
 
-  if (!active) return null;
+  if (active === "hidden") return null;
 
-  const scanHref = "/scan";
-  const reportHref = "/report";
-  const proofHref = "/optimize";
-
-  const item = (tab: Tab, href: string, label: string, icon: ReactNode, opts?: { primary?: boolean; muted?: boolean }) => {
+  const item = (tab: Tab, href: string, label: string, icon: ReactNode, opts?: { primary?: boolean }) => {
     const on = active === tab;
     const primary = opts?.primary;
     return (
       <Link
         href={href}
         aria-current={on ? "page" : undefined}
-        aria-label={
-          tab === "proof" ? "Proof — guided versus naive capture" : tab === "report" ? "Report — pick a house" : label
-        }
+        aria-label={tab === "report" ? "Report — pick a house" : label}
         className={`flex min-w-0 flex-1 flex-col items-center gap-0.5 py-1 text-[10px] font-medium tracking-wide ${
           primary
             ? on
@@ -99,9 +83,7 @@ function BottomNavInner() {
               : "-mt-4 text-slate-600"
             : on
               ? "text-emerald-700"
-              : opts?.muted
-                ? "text-slate-400"
-                : "text-slate-500"
+              : "text-slate-500"
         }`}
       >
         <span
@@ -125,11 +107,10 @@ function BottomNavInner() {
       aria-label="Main"
       className="print:hidden fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 pb-[max(0.4rem,env(safe-area-inset-bottom))] pt-1 backdrop-blur"
     >
-      <div className="mx-auto flex max-w-md items-end px-2">
+      <div className="mx-auto flex max-w-md items-end px-6">
         {item("houses", "/", "Houses", <IconHouses on={active === "houses"} />)}
-        {item("scan", scanHref, "Scan", <IconScan on={active === "scan"} />, { primary: true })}
-        {item("report", reportHref, "Report", <IconReport on={active === "report"} />)}
-        {item("proof", proofHref, "Proof", <IconProof on={active === "proof"} />)}
+        {item("scan", "/scan", "Scan", <IconScan on={active === "scan"} />, { primary: true })}
+        {item("report", "/report", "Report", <IconReport on={active === "report"} />)}
       </div>
     </nav>
   );
