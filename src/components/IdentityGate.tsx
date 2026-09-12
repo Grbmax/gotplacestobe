@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { IdentityContext } from "@/lib/IdentityContext";
-import { clearIdentity, loadIdentity, newIdentityId, ROLE_BLURB, ROLE_LABEL, ROLES, saveIdentity } from "@/lib/identity";
+import { clearIdentity, identityIdFromName, loadIdentity, ROLE_BLURB, ROLE_LABEL, ROLES, saveIdentity } from "@/lib/identity";
 import type { Identity, Role } from "@/lib/types";
 
 type MeResponse =
@@ -101,7 +101,7 @@ export function IdentityGate({ children }: { children: React.ReactNode }) {
           nameField={{ value: liteName, onChange: setLiteName }}
           busy={false}
           onSubmit={(role) => {
-            const identity: Identity = { id: newIdentityId(), name: liteName.trim(), role };
+            const identity: Identity = { id: identityIdFromName(liteName), name: liteName.trim(), role };
             saveIdentity(identity);
             setLiteIdentity(identity);
           }}

@@ -24,6 +24,7 @@ export default function ScanPage() {
   const [error, setError] = useState<string | null>(null);
   const [pastScans, setPastScans] = useState<Scan[]>([]);
   const [ghostOn, setGhostOn] = useState(true);
+  const [coveredCount, setCoveredCount] = useState(0);
 
   const scannableProperties = useMemo(() => (properties ?? []).filter((p) => !p.isSample), [properties]);
 
@@ -45,34 +46,39 @@ export default function ScanPage() {
     })().catch(() => setError("Could not load properties"));
   }, []);
 
+  async function refreshGuidance(pid: string) {
+    const res = await fetch(`/api/scans?propertyId=${pid}`, { cache: "no-store" });
+    const data = (await res.json()) as { scans: Scan[] };
+    setPastScans(data.scans ?? []);
+    const map = new Map<string, SurfaceCoverage>();
+    // /api/scans returns newest-first, so the first hit per key is the latest scan.
+    for (const s of data.scans) {
+      const key = `${s.room}::${s.surface}`;
+      const cur = map.get(key);
+      if (!cur) {
+        map.set(key, {
+          room: s.room,
+          surface: s.surface,
+          lastScannedAt: s.capturedAt,
+          scanCount: 1,
+          lastDetections: s.detections,
+        });
+      } else {
+        cur.scanCount += 1;
+      }
+    }
+    setCoveredCount(map.size);
+    const next = nextBestSurface([...map.values()]);
+    setRoom(next.room);
+    setSurface(next.surface);
+    setReason(next.reason);
+  }
+
+  // Re-guide on property change, AND every time a scan actually completes (see onCapture) —
+  // otherwise the prompt goes stale after the very first shot, which defeats the entire point.
   useEffect(() => {
     if (!propertyId) return;
-    void (async () => {
-      const res = await fetch(`/api/scans?propertyId=${propertyId}`, { cache: "no-store" });
-      const data = (await res.json()) as { scans: Scan[] };
-      setPastScans(data.scans ?? []);
-      const map = new Map<string, SurfaceCoverage>();
-      // /api/scans returns newest-first, so the first hit per key is the latest scan.
-      for (const s of data.scans) {
-        const key = `${s.room}::${s.surface}`;
-        const cur = map.get(key);
-        if (!cur) {
-          map.set(key, {
-            room: s.room,
-            surface: s.surface,
-            lastScannedAt: s.capturedAt,
-            scanCount: 1,
-            lastDetections: s.detections,
-          });
-        } else {
-          cur.scanCount += 1;
-        }
-      }
-      const next = nextBestSurface([...map.values()]);
-      setRoom(next.room);
-      setSurface(next.surface);
-      setReason(next.reason);
-    })().catch(() => undefined);
+    void refreshGuidance(propertyId).catch(() => undefined);
   }, [propertyId]);
 
   const rooms = useMemo(() => [...new Set(KNOWN_SURFACES.map((s) => s.room))], []);
@@ -108,6 +114,9 @@ export default function ScanPage() {
       if (!res.ok || !data.scan) throw new Error(data.error ?? "scan failed");
       setResultScan(data.scan);
       setResultDets(data.scan.detections);
+      // Recompute the guided prompt now, while the Finding card is up — so by the
+      // time "Back to live" is tapped, the next recommendation is already showing.
+      void refreshGuidance(propertyId).catch(() => undefined);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Scan failed");
       setFrozenUrl(null);
@@ -187,7 +196,13 @@ export default function ScanPage() {
           </div>
         </div>
         <div className="pointer-events-auto">
-          <SurfacePrompt room={room} surface={surface} reason={reason} />
+          <SurfacePrompt
+            room={room}
+            surface={surface}
+            reason={reason}
+            covered={coveredCount}
+            total={KNOWN_SURFACES.length}
+          />
         </div>
       </div>
 
