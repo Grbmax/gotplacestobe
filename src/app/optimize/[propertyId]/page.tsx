@@ -10,7 +10,15 @@ import { OptimizeChart } from "@/components/OptimizeChart";
 import { rememberHouse } from "@/lib/activeHouse";
 import { roomSurfaceLabel } from "@/lib/labels";
 import { coverageFromScans, nextBestSurface } from "@/lib/nextbest";
-import { cumulativeDefects, guidedOrder, guidedVsNaiveSummary, naiveOrder, totalDistinctDefects } from "@/lib/optimize";
+import {
+  discoveryCurve,
+  guidedOrder,
+  guidedVsNaiveSummary,
+  naiveOrder,
+  surfaceSeverity,
+  totalDamage,
+  totalDistinctDefects,
+} from "@/lib/optimize";
 import type { Property, Scan } from "@/lib/types";
 
 export default function OptimizePage() {
@@ -42,12 +50,15 @@ export default function OptimizePage() {
     })().catch(() => setStatus("missing"));
   }, [propertyId]);
 
-  const { guidedCum, naiveCum, total, summary, nextShot } = useMemo(() => {
+  const { guidedCum, naiveCum, total, surfaceCount, summary, nextShot } = useMemo(() => {
     const next = nextBestSurface(coverageFromScans(scans), property?.cityContext?.civic);
+    const severity = surfaceSeverity(scans);
+    const damage = totalDamage(scans);
     return {
-      guidedCum: cumulativeDefects(guidedOrder(scans)),
-      naiveCum: cumulativeDefects(naiveOrder(scans)),
+      guidedCum: discoveryCurve(guidedOrder(scans), severity, damage),
+      naiveCum: discoveryCurve(naiveOrder(scans), severity, damage),
       total: totalDistinctDefects(scans),
+      surfaceCount: severity.size,
       summary: guidedVsNaiveSummary(scans),
       nextShot: roomSurfaceLabel(next.room, next.surface),
     };
@@ -71,7 +82,8 @@ export default function OptimizePage() {
       <p className="mt-4 text-[11px] font-medium tracking-[0.12em] text-emerald-700">Proof</p>
       <h1 className="mt-2 text-3xl font-semibold tracking-tight">Guided vs. naive</h1>
       <p className="mt-1 text-sm text-slate-500">
-        {property.label} · {scans.length} photos. Same photos, two orders: the planner versus wandering.
+        {property.label} · {scans.length} photos across {surfaceCount} surface
+        {surfaceCount === 1 ? "" : "s"}. Same surfaces, two orders: the planner versus wandering.
       </p>
       <Link href={`/report/${propertyId}`} className="mt-2 inline-block text-xs text-emerald-800 underline underline-offset-4">
         Open this house’s report
@@ -110,9 +122,10 @@ export default function OptimizePage() {
           </div>
 
           <p className="mt-4 text-xs text-slate-500">
-            Guided order re-runs the real next-best-capture planner over these same photos, step by step, as if you&apos;d
-            followed it from the start. Naive photographs lowest-risk surfaces first — the opposite of the planner. Same
-            photos, same defects — only the order changes.
+            Guided order re-runs the real next-best-capture planner over these same surfaces, step by step, as if
+            you&apos;d followed it from the start. Naive photographs lowest-risk surfaces first — the opposite of the
+            planner. Damage is measured by how much of each surface came back affected, so finding half a mouldy ceiling
+            counts for more than a paint speck. Same surfaces, same findings — only the order changes.
           </p>
         </>
       )}
