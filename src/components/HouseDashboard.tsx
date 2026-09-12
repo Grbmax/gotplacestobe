@@ -87,9 +87,12 @@ export function HouseDashboard({
                   </span>
                 ))}
               </div>
-            ) : (
+            ) : hook !== headline ? (
+              // Only show this when it says something the title line didn't already —
+              // hook already equals headline outside the grant-eligible case, and
+              // repeating it verbatim read as unfinished placeholder copy.
               <p className="mt-1 text-[11px] opacity-70">{headline}</p>
-            )}
+            ) : null}
           </div>
           <span className="mt-0.5 shrink-0 rounded-full border border-white/20 px-2.5 py-1 text-[10px] uppercase tracking-wider opacity-80">
             {open ? "Hide" : "Open"}

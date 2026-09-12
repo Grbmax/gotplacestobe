@@ -68,6 +68,13 @@ function RolePicker({
         >
           {busy ? "One sec…" : "Continue"}
         </button>
+        {!busy && (nameField?.value.trim() === "" || !role) && (
+          <p className="mt-2 text-center text-xs text-zinc-500">
+            {nameField && !nameField.value.trim() ? "Enter a name" : !role ? "Pick a role" : ""}
+            {nameField && !nameField.value.trim() && !role ? " and pick a role" : ""}
+            {" "}to continue
+          </p>
+        )}
       </div>
     </div>
   );
