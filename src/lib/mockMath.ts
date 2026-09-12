@@ -1,4 +1,5 @@
 import type { DefectClass, Detection } from "./types";
+import { sentenceFromDetections } from "./finding";
 
 const CLASSES: DefectClass[] = ["mold", "water_seepage", "crack", "peeling_paint"];
 
@@ -52,12 +53,7 @@ export function mockDetections(seedKey: string, countBias = 0): Detection[] {
 }
 
 export function mockFinding(detections: Detection[]): string {
-  if (!detections.length) {
-    return "Preview only — no obvious mold, seepage, cracking, or peeling in this frame.";
-  }
-  const top = [...detections].sort((a, b) => b.confidence - a.confidence)[0]!;
-  const label = top.cls.replace(/_/g, " ");
-  return `Preview only — looks like possible ${label} near center-left.`;
+  return sentenceFromDetections(detections, false);
 }
 
 export function sanitizeDetections(raw: unknown): Detection[] {

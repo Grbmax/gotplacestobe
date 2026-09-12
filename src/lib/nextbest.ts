@@ -33,6 +33,24 @@ function priorRisk(surfaceKey: string) {
   return PRIORS[surfaceKey] ?? 0.4;
 }
 
+function keyFor(room: string, surface: string) {
+  return KNOWN_SURFACES.find((s) => s.room === room && s.surface === surface)?.key ?? `${room}_${surface}`;
+}
+
+/** Same value(surface) the planner maximises — exported for guided/naive replay. */
+export function surfacePlannerValue(room: string, surface: string, covered: SurfaceCoverage[], civic?: CivicPulse) {
+  const cov = covered.find((c) => c.room === room && c.surface === surface);
+  const key = keyFor(room, surface);
+  let prior = priorRisk(key);
+  if (civic?.waterNearby && (key === "under_sink" || key === "basement_wall")) {
+    prior *= 1.85;
+  }
+  const coverage = coverageScore(cov?.scanCount ?? 0);
+  const decay = recencyDecay(cov?.lastScannedAt ?? null);
+  const uncertainty = uncertaintyBoost(cov?.lastDetections);
+  return prior * (1 - coverage) * decay * uncertainty;
+}
+
 function coverageScore(scanCount: number) {
   // Capped below 1 so a well-covered surface can never be fully zeroed out —
   // otherwise recencyDecay could never bring it back into rotation after a
@@ -126,14 +144,7 @@ export function nextBestSurface(
 
   for (const s of KNOWN_SURFACES) {
     const cov = byKey.get(`${s.room}::${s.surface}`);
-    let prior = priorRisk(s.key);
-    if (civic?.waterNearby && (s.key === "under_sink" || s.key === "basement_wall")) {
-      prior *= 1.85;
-    }
-    const coverage = coverageScore(cov?.scanCount ?? 0);
-    const decay = recencyDecay(cov?.lastScannedAt ?? null);
-    const uncertainty = uncertaintyBoost(cov?.lastDetections);
-    const value = prior * (1 - coverage) * decay * uncertainty;
+    const value = surfacePlannerValue(s.room, s.surface, covered, civic);
     if (value > bestScore) {
       bestScore = value;
       best = s;

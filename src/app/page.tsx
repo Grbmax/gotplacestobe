@@ -14,6 +14,7 @@ import {
   severityFromRatio,
   severityTextClass,
 } from "@/lib/labels";
+import { formatScanTime } from "@/lib/time";
 import type { Property } from "@/lib/types";
 
 const DEMO_PROPERTY_ID = "prop_sample_beacon";
@@ -121,34 +122,34 @@ export default function HomePage() {
   const hiddenCount = rows ? rows.length - visible.length : 0;
 
   return (
-    <main className="mx-auto min-h-dvh max-w-md px-5 pb-16 pt-8 text-white">
+    <main className="mx-auto min-h-dvh max-w-md px-5 pb-16 pt-8 text-slate-900">
       <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-[11px] uppercase tracking-[0.28em] text-emerald-400">SCAN</p>
+        <div className="min-w-0">
+          <p className="text-[11px] uppercase tracking-[0.28em] text-emerald-700">SCAN</p>
           <h1 className="mt-2 text-4xl font-semibold tracking-tight">Move-in check</h1>
         </div>
-        <IdentityChip className="mt-1" />
+        <IdentityChip className="mt-1 shrink-0" />
       </div>
-      <p className="mt-2 text-sm text-zinc-400">{ROLE_BLURB[identity.role]}</p>
-      <p className="mt-2 text-sm text-zinc-500">
+      <p className="mt-2 text-sm text-slate-500">{ROLE_BLURB[identity.role]}</p>
+      <p className="mt-2 text-sm text-slate-500">
         Enter the rental once. Same street address reopens that house. Different apartments stay separate reports.
       </p>
 
-      <form onSubmit={createProperty} className="mt-8 space-y-3 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
-        <label className="block text-[11px] uppercase tracking-[0.18em] text-zinc-500">Rental address</label>
+      <form onSubmit={createProperty} className="mt-8 space-y-3 rounded-2xl border border-slate-200 bg-white p-4">
+        <label className="block text-[11px] uppercase tracking-[0.18em] text-slate-500">Rental address</label>
         <input
           value={label}
           onChange={(e) => setLabel(e.target.value)}
           placeholder="5614 Beacon St"
-          className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-3 text-sm outline-none focus:border-emerald-400"
+          className="w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm outline-none focus:border-emerald-600"
           required
         />
-        <label className="block text-[11px] uppercase tracking-[0.18em] text-zinc-500">Apt / unit (if any)</label>
+        <label className="block text-[11px] uppercase tracking-[0.18em] text-slate-500">Apt / unit (if any)</label>
         <input
           value={unit}
           onChange={(e) => setUnit(e.target.value)}
           placeholder="2B"
-          className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-3 text-sm outline-none focus:border-emerald-400"
+          className="w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm outline-none focus:border-emerald-600"
         />
         <div className="grid grid-cols-3 gap-2" role="group" aria-label="Property type">
           {PROPERTY_KINDS.map((item) => {
@@ -161,8 +162,8 @@ export default function HomePage() {
                 aria-pressed={selected}
                 className={
                   selected
-                    ? "rounded-xl border border-emerald-400 bg-emerald-400/10 py-3 text-sm font-medium text-emerald-300"
-                    : "rounded-xl border border-zinc-700 bg-zinc-950 py-3 text-sm text-zinc-300"
+                    ? "rounded-xl border border-emerald-600 bg-emerald-50 py-3 text-sm font-medium text-emerald-800"
+                    : "rounded-xl border border-slate-200 bg-slate-50 py-3 text-sm text-slate-600"
                 }
               >
                 {item.label}
@@ -173,24 +174,24 @@ export default function HomePage() {
         <button
           type="submit"
           disabled={busy}
-          className="w-full rounded-full bg-zinc-100 py-3 text-sm font-semibold text-black disabled:opacity-50"
+          className="w-full rounded-full bg-emerald-600 py-3 text-sm font-semibold text-white disabled:opacity-50"
         >
           {busy ? "Opening house…" : "Set up this house"}
         </button>
       </form>
 
-      {error && <p className="mt-3 text-sm text-rose-400">{error}</p>}
+      {error && <p className="mt-3 text-sm text-rose-600">{error}</p>}
 
       {rows === null ? (
         <div className="mt-8 space-y-3">
           {[0, 1].map((i) => (
-            <div key={i} className="h-24 animate-pulse rounded-2xl border border-zinc-800 bg-zinc-900/60" />
+            <div key={i} className="h-24 animate-pulse rounded-2xl border border-slate-200 bg-slate-100" />
           ))}
         </div>
       ) : visible.length === 0 ? (
-        <div className="mt-10 rounded-2xl border border-dashed border-zinc-800 p-6 text-center">
-          <p className="text-sm text-zinc-400">No properties yet.</p>
-          <p className="mt-1 text-xs text-zinc-500">Add one above, or open the demo report when it appears.</p>
+        <div className="mt-10 rounded-2xl border border-dashed border-slate-300 p-6 text-center">
+          <p className="text-sm text-slate-500">No properties yet.</p>
+          <p className="mt-1 text-xs text-slate-400">Add one above, or open the demo report when it appears.</p>
         </div>
       ) : (
         <ul className="mt-8 space-y-3">
@@ -199,24 +200,24 @@ export default function HomePage() {
             return (
               <li key={property.id}>
                 <div
-                  className={`rounded-2xl border bg-zinc-900 ${
-                    isDemoHouse(property) ? "border-violet-400/40" : "border-zinc-800"
+                  className={`rounded-2xl border bg-white ${
+                    isDemoHouse(property) ? "border-sky-300" : "border-slate-200"
                   }`}
                 >
-                  <Link href={`/report/${property.id}`} className="block p-4 transition hover:border-zinc-600">
+                  <Link href={`/report/${property.id}`} className="block p-4 transition hover:border-slate-400">
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <div className="flex items-center gap-2">
                           <p className="text-lg font-medium">{property.label}</p>
                           {isDemoHouse(property) && (
-                            <span className="rounded-full bg-violet-400 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-black">
+                            <span className="rounded-full border border-slate-300 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
                               Demo report
                             </span>
                           )}
                         </div>
-                        <p className="mt-1 text-xs text-zinc-500">
+                        <p className="mt-1 text-xs text-slate-500">
                           {isDemoHouse(property)
-                            ? "Look only — not a house you photograph"
+                            ? "Sample report — read-only"
                             : `${kindLabel(property.kind)}${property.unit ? ` · Apt ${property.unit}` : ""}`}
                         </p>
                       </div>
@@ -226,9 +227,9 @@ export default function HomePage() {
                         </p>
                       )}
                     </div>
-                    <p className="mt-3 text-xs text-zinc-400">
+                    <p className="mt-3 text-xs text-slate-500">
                       {scanCount} {scanCount === 1 ? "photo" : "photos"}
-                      {lastScannedAt ? ` · last ${new Date(lastScannedAt).toLocaleString()}` : " · no photos yet"}
+                      {lastScannedAt ? ` · last ${formatScanTime(lastScannedAt)}` : " · no photos yet"}
                     </p>
                     {!isDemoHouse(property) && <CityContextCard context={property.cityContext} compact />}
                   </Link>
@@ -243,16 +244,16 @@ export default function HomePage() {
         <button
           type="button"
           onClick={() => setShowAll(true)}
-          className="mt-4 w-full text-center text-xs text-zinc-500 underline underline-offset-4"
+          className="mt-4 w-full text-center text-xs text-slate-500 underline underline-offset-4"
         >
-          Show {hiddenCount} more from other people testing this
+          {hiddenCount} other people scanned a place today
         </button>
       )}
       {showAll && (
         <button
           type="button"
           onClick={() => setShowAll(false)}
-          className="mt-4 w-full text-center text-xs text-zinc-500 underline underline-offset-4"
+          className="mt-4 w-full text-center text-xs text-slate-500 underline underline-offset-4"
         >
           Show only mine
         </button>

@@ -147,7 +147,7 @@ export default function ScanPage() {
           </p>
           <Link
             href="/"
-            className="mt-6 inline-block rounded-full bg-emerald-400 px-6 py-3 text-sm font-semibold text-black"
+            className="mt-6 inline-block rounded-full bg-emerald-600 px-6 py-3 text-sm font-semibold text-white"
           >
             Go add one
           </Link>
@@ -180,7 +180,7 @@ export default function ScanPage() {
               <button
                 type="button"
                 onClick={() => setGhostOn((v) => !v)}
-                className={`rounded-full px-3 py-1.5 text-xs ${ghostOn ? "bg-emerald-400 text-black" : "bg-black/55 text-zinc-200"}`}
+                className={`rounded-full px-3 py-1.5 text-xs ${ghostOn ? "bg-emerald-600 text-white" : "bg-black/55 text-zinc-200"}`}
               >
                 {ghostOn ? "Hide last photo" : "Show last photo"}
               </button>
@@ -284,14 +284,14 @@ export default function ScanPage() {
               )}
               <p className="text-sm leading-relaxed">{resultScan.finding}</p>
               {resultScan.imagineUrl && !resultScan.degraded && (
-                <figure className="mt-3 overflow-hidden rounded-xl border border-violet-400/30">
+                <figure className="mt-3 overflow-hidden rounded-xl border border-sky-400/30">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={resultScan.imagineUrl}
                     alt="Educational illustration of untreated progression"
                     className="aspect-video w-full object-cover"
                   />
-                  <figcaption className="bg-violet-950/50 px-3 py-2 text-[10px] uppercase tracking-wider text-violet-200">
+                  <figcaption className="bg-sky-950/50 px-3 py-2 text-[10px] uppercase tracking-wider text-sky-200">
                     Grok Imagine · educational still — not a photo of this unit
                   </figcaption>
                 </figure>
@@ -308,7 +308,7 @@ export default function ScanPage() {
               <button
                 type="button"
                 onClick={resumeLive}
-                className="mt-3 w-full rounded-full bg-emerald-400 py-2.5 text-sm font-semibold text-black"
+                className="mt-3 w-full rounded-full bg-emerald-600 py-2.5 text-sm font-semibold text-white"
               >
                 Next surface
               </button>

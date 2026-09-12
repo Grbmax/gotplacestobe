@@ -1,5 +1,6 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { fuseDetections } from "./fuse";
+import { sentenceFromDetections } from "./finding";
 import { detectWithGrok, hasGrok } from "./grok";
 import type { Detection } from "./types";
 import { mockDetections, mockFinding, sanitizeDetections } from "./mockMath";
@@ -117,16 +118,7 @@ function forcedMock() {
 }
 
 function findingFromDetections(detections: Detection[], source: "roboflow" | "mock"): string {
-  if (!detections.length) {
-    return source === "roboflow"
-      ? "No visible mold, seepage, cracking, or peeling detected."
-      : "Preview only — no obvious defects in this frame.";
-  }
-  const top = [...detections].sort((a, b) => b.confidence - a.confidence)[0]!;
-  const label = top.cls.replace(/_/g, " ");
-  return source === "roboflow"
-    ? `Possible ${label} visible (confidence ${(top.confidence * 100).toFixed(0)}%).`
-    : `Preview only — looks like possible ${label}.`;
+  return sentenceFromDetections(detections, source === "roboflow");
 }
 
 function isQuotaError(err: unknown): boolean {
