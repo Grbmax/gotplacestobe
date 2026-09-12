@@ -49,12 +49,13 @@ export function BoxOverlay({ detections, width, height, className, labeled = tru
           }
 
           const color = COLORS[d.cls] ?? "#fff";
-          // Don't paint weak % labels — they read as confident claims.
-          if (d.confidence < 0.55) continue;
+          // Server already filtered weak guesses — always draw the frame.
           ctx.strokeStyle = color;
           ctx.lineWidth = 2;
           ctx.strokeRect(x, y, w, h);
-          const label = `${d.cls.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())} ${Math.round(d.confidence * 100)}%`;
+          const name = d.cls.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+          const label =
+            d.confidence >= 0.55 ? `${name} ${Math.round(d.confidence * 100)}%` : name;
           ctx.font = "12px ui-sans-serif, system-ui, sans-serif";
           const tw = ctx.measureText(label).width + 8;
           ctx.fillStyle = "rgba(0,0,0,0.7)";

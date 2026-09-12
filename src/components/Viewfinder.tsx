@@ -253,8 +253,7 @@ export function Viewfinder({
 
       {analyzing && (
         <div className="absolute inset-0 z-30 grid place-items-center bg-black/50">
-          <p className="rounded-full bg-white px-4 py-2 text-sm font-medium text-black">Looking…</p>
-        </div>
+          <p className="rounded-full bg-white px-4 py-2 text-sm font-medium text-black">Looking…</p>        </div>
       )}
 
       {started && !analyzing && !frozenUrl && (
