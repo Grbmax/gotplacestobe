@@ -1,6 +1,8 @@
 import { GoogleGenAI, Type } from "@google/genai";
+import { fuseDetections } from "./fuse";
 import type { Detection } from "./types";
 import { mockDetections, mockFinding, sanitizeDetections } from "./mockMath";
+import { detectWithRoboflow, hasRoboflow } from "./roboflow";
 
 export interface Detector {
   name: "gemini" | "mock";
@@ -11,7 +13,6 @@ class MockDetector implements Detector {
   name = "mock" as const;
   async detect(imageDataUrl: string) {
     const seed = String(imageDataUrl.length);
-    // Keep mock sparse so demos don't look like constant false mold alerts.
     const detections = mockDetections(`shot:${seed}`, -0.5);
     return { detections, finding: mockFinding(detections) };
   }
@@ -116,23 +117,91 @@ function selectDetector(): Detector {
   return new MockDetector();
 }
 
+function appendVerifyNote(finding: string, agreed: number, rfOnly: number): string {
+  if (agreed > 0) {
+    return `${finding} (Roboflow verified ${agreed} region${agreed === 1 ? "" : "s"}.)`;
+  }
+  if (rfOnly > 0) {
+    return `${finding} (Roboflow also flagged additional high-confidence regions.)`;
+  }
+  return finding;
+}
+
 const mock = new MockDetector();
 
-/** Run detection. Gemini when configured; on any Gemini failure, fall back to mock for that request. */
-export async function runDetect(
-  imageDataUrl: string,
-): Promise<{ detections: Detection[]; finding: string; detector: "gemini" | "mock" }> {
+export type DetectorKind = "gemini" | "mock" | "gemini+roboflow" | "roboflow";
+
+export type DetectResult = {
+  detections: Detection[];
+  finding: string;
+  detector: DetectorKind;
+};
+
+function findingFromDetections(detections: Detection[], source: "roboflow" | "mock"): string {
+  if (!detections.length) {
+    return source === "roboflow"
+      ? "No visible mold, seepage, cracking, or peeling detected."
+      : "Preview only — no obvious defects in this frame.";
+  }
+  const top = [...detections].sort((a, b) => b.confidence - a.confidence)[0]!;
+  const label = top.cls.replace(/_/g, " ");
+  return source === "roboflow"
+    ? `Possible ${label} visible (confidence ${(top.confidence * 100).toFixed(0)}%).`
+    : `Preview only — looks like possible ${label}.`;
+}
+
+/** Gemini primary; Roboflow verifies. If Gemini is down (e.g. quota), Roboflow is used alone — never invent Mock boxes when RF is available. */
+export async function runDetect(imageDataUrl: string): Promise<DetectResult> {
   const preferred = selectDetector();
+  let primary: { detections: Detection[]; finding: string } | null = null;
+  let base: "gemini" | "mock" | null = null;
+
   if (preferred.name === "mock") {
-    const result = await preferred.detect(imageDataUrl);
-    return { ...result, detector: "mock" };
+    primary = await preferred.detect(imageDataUrl);
+    base = "mock";
+  } else {
+    try {
+      primary = await preferred.detect(imageDataUrl);
+      base = "gemini";
+    } catch (err) {
+      console.error("[detect] Gemini failed; will try Roboflow then mock", err);
+    }
   }
-  try {
-    const result = await preferred.detect(imageDataUrl);
-    return { ...result, detector: "gemini" };
-  } catch (err) {
-    console.error("[detect] Gemini failed, falling back to mock", err);
-    const result = await mock.detect(imageDataUrl);
-    return { ...result, detector: "mock" };
+
+  // Forced mock mode — skip RF.
+  if (base === "mock" && primary) {
+    return { ...primary, detector: "mock" };
   }
+
+  if (hasRoboflow()) {
+    try {
+      const rf = await detectWithRoboflow(imageDataUrl);
+
+      // Gemini down → Roboflow alone (real CV, not seeded mock).
+      if (!primary || base !== "gemini") {
+        return {
+          detections: rf,
+          finding: findingFromDetections(rf, "roboflow"),
+          detector: "roboflow",
+        };
+      }
+
+      if (!rf.length) return { ...primary, detector: "gemini" };
+
+      const fused = fuseDetections(primary.detections, rf);
+      return {
+        detections: fused.detections,
+        finding: appendVerifyNote(primary.finding, fused.agreed, fused.roboflowOnly),
+        detector: fused.agreed > 0 || fused.roboflowOnly > 0 ? "gemini+roboflow" : "gemini",
+      };
+    } catch (err) {
+      console.error("[detect] Roboflow failed", err);
+      if (primary && base === "gemini") return { ...primary, detector: "gemini" };
+    }
+  }
+
+  if (primary && base === "gemini") return { ...primary, detector: "gemini" };
+
+  const fallback = await mock.detect(imageDataUrl);
+  return { ...fallback, detector: "mock" };
 }

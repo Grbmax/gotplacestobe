@@ -148,7 +148,7 @@ export type Scan = {
   detections: Detection[];
   totalAffectedRatio: number;
   finding: string;
-  detector: "gemini" | "mock";
+  detector: "gemini" | "mock" | "gemini+roboflow" | "roboflow";
   review?: Review;
   isSample?: boolean;
   scannedBy?: string;
