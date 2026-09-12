@@ -59,40 +59,65 @@ export default function HomePage() {
 
   async function load() {
     const res = await fetch("/api/properties", { cache: "no-store" });
+    if (!res.ok) throw new Error("properties");
     const data = (await res.json()) as { properties: Property[] };
-    const properties = [...data.properties];
-    for (const property of properties.slice(0, 8)) {
-      if (!cityContextNeedsRefresh(property.cityContext)) continue;
-      const refreshed = await fetch(`/api/properties/${property.id}`, { method: "POST" });
-      if (!refreshed.ok) continue;
-      const body = (await refreshed.json()) as { property?: Property };
-      if (body.property) {
-        const i = properties.findIndex((p) => p.id === property.id);
-        if (i >= 0) properties[i] = body.property;
-      }
-    }
-    const summaries: Summary[] = [];
-    for (const property of properties) {
-      const sRes = await fetch(`/api/scans?propertyId=${property.id}`, { cache: "no-store" });
-      const sData = (await sRes.json()) as { scans: { capturedAt: string; totalAffectedRatio: number }[] };
-      const scans = sData.scans ?? [];
-      const newest = scans[0];
-      const oldest = scans[scans.length - 1];
-      const lastRatio = newest?.totalAffectedRatio ?? null;
-      const worsening =
-        scans.length >= 2 &&
-        newest != null &&
-        oldest != null &&
-        newest.totalAffectedRatio - oldest.totalAffectedRatio >= 0.01;
-      summaries.push({
+    const properties = [...(data.properties ?? [])];
+    setRows(
+      properties.map((property) => ({
         property,
-        lastScannedAt: newest?.capturedAt ?? null,
-        lastRatio,
-        worsening,
-        scanCount: scans.length,
-      });
-    }
+        lastScannedAt: null,
+        lastRatio: null,
+        worsening: false,
+        scanCount: 0,
+      })),
+    );
+
+    const summaries = await Promise.all(
+      properties.map(async (property) => {
+        try {
+          const sRes = await fetch(`/api/scans?propertyId=${property.id}`, { cache: "no-store" });
+          const sData = (await sRes.json()) as { scans: { capturedAt: string; totalAffectedRatio: number }[] };
+          const scans = sData.scans ?? [];
+          const newest = scans[0];
+          const oldest = scans[scans.length - 1];
+          const lastRatio = newest?.totalAffectedRatio ?? null;
+          const worsening =
+            scans.length >= 2 &&
+            newest != null &&
+            oldest != null &&
+            newest.totalAffectedRatio - oldest.totalAffectedRatio >= 0.01;
+          return {
+            property,
+            lastScannedAt: newest?.capturedAt ?? null,
+            lastRatio,
+            worsening,
+            scanCount: scans.length,
+          };
+        } catch {
+          return { property, lastScannedAt: null, lastRatio: null, worsening: false, scanCount: 0 };
+        }
+      }),
+    );
     setRows(summaries);
+
+    void (async () => {
+      const next = [...summaries];
+      for (const row of next.slice(0, 8)) {
+        if (!cityContextNeedsRefresh(row.property.cityContext)) continue;
+        try {
+          const refreshed = await fetch(`/api/properties/${row.property.id}`, { method: "POST" });
+          if (!refreshed.ok) continue;
+          const body = (await refreshed.json()) as { property?: Property };
+          if (body.property) {
+            const i = next.findIndex((r) => r.property.id === row.property.id);
+            if (i >= 0) next[i] = { ...next[i]!, property: body.property };
+          }
+        } catch {
+          /* county lookup is optional — never block the house list */
+        }
+      }
+      setRows([...next]);
+    })();
   }
 
   useEffect(() => {
@@ -112,7 +137,10 @@ export default function HomePage() {
       filter === "mine"
         ? scoped.filter(mine)
         : filter === "addresses"
-          ? scoped.filter((r) => mine(r) || isStreetAddress(r.property.label) || isLandlordPortfolio(r.property))
+          ? scoped.filter(
+              (r) =>
+                isStreetAddress(r.property.label) || isDemoHouse(r.property) || isLandlordPortfolio(r.property),
+            )
           : scoped;
     const searched = q
       ? pool.filter(

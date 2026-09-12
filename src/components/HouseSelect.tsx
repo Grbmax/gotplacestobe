@@ -43,10 +43,6 @@ const COPY: Record<
   },
 };
 
-function isStreetAddress(label: string) {
-  return /^\d+\s+[A-Za-z]/.test(label.trim());
-}
-
 function isDemoHouse(property: Property) {
   return Boolean(property.isSample);
 }
@@ -102,16 +98,18 @@ export function HouseSelect({
           (p) =>
             p.label.toLowerCase().includes(q) ||
             (p.unit ?? "").toLowerCase().includes(q) ||
-            (p.cityContext?.zipCode ?? "").includes(q),
+            (p.cityContext?.zipCode ?? "").includes(q) ||
+            (p.cityContext?.neighborhood ?? "").toLowerCase().includes(q),
         )
-      : houses.filter((p) => p.id === lastId || isStreetAddress(p.label) || (intent !== "scan" && isDemoHouse(p)));
+      : houses;
     return [...pool].sort((a, b) => {
       if (a.id === lastId) return -1;
       if (b.id === lastId) return 1;
       if (isDemoHouse(a) !== isDemoHouse(b)) return isDemoHouse(a) ? 1 : -1;
+      if (isLandlordPortfolio(a) !== isLandlordPortfolio(b)) return isLandlordPortfolio(a) ? -1 : 1;
       return a.label.localeCompare(b.label);
     });
-  }, [houses, query, lastId, intent]);
+  }, [houses, query, lastId]);
 
   function goCreated(property: Property) {
     rememberHouse(property.id);
