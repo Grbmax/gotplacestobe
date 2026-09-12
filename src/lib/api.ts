@@ -67,6 +67,22 @@ export async function apiMarkDone(id: string, userId: string) {
   return data;
 }
 
+export async function apiConfirmQuest(id: string, userId: string) {
+  const res = await fetch(`/api/quests/${id}/confirm`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ userId }),
+  });
+  const data = (await res.json()) as {
+    quest?: Quest;
+    user?: Session;
+    transaction?: Transaction;
+    error?: string;
+  };
+  if (!res.ok || !data.quest) throw new Error(data.error ?? "confirm");
+  return data;
+}
+
 export async function apiMe(userId: string) {
   const res = await fetch(`/api/me?userId=${userId}`, { cache: "no-store" });
   if (!res.ok) throw new Error("me");

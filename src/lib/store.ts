@@ -140,6 +140,35 @@ export function markDone(id: string, userId: string) {
   return { quest, user };
 }
 
+export function confirmQuest(id: string, userId: string) {
+  const quest = quests.find((q) => q.id === id);
+  if (!quest) return { error: "Not found" as const };
+  if (quest.status !== "PENDING") return { error: "Not pending" as const };
+  if (quest.requesterId !== userId) {
+    return { error: "Only the requester can confirm" as const };
+  }
+
+  const helper = quest.helperId ? users.get(quest.helperId) : undefined;
+  if (!helper) return { error: "Not found" as const };
+
+  const total = quest.baseKarma + quest.bonusKarma;
+  quest.status = "CONFIRMED";
+  quest.updatedAt = stamp();
+  helper.karma += total;
+  helper.completed += 1;
+
+  const transaction: Transaction = {
+    id: `tx_${stamp()}`,
+    toUserId: helper.id,
+    questId: quest.id,
+    label: `Confirmed · ${quest.title}`,
+    amount: total,
+    when: "Just now",
+  };
+  transactions.set(helper.id, [transaction, ...(transactions.get(helper.id) ?? [])]);
+  return { quest, user: helper, transaction };
+}
+
 export function getMe(userId: string) {
   const user = users.get(userId);
   if (!user) return null;

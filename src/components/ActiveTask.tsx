@@ -7,12 +7,22 @@ import type { Quest } from "@/lib/types";
 type Props = {
   quest: Quest | null;
   remainingMs: number;
+  role: "helper" | "requester";
   onClose: () => void;
   onBail: () => void;
   onDone: () => void;
+  onConfirm: () => void;
 };
 
-export function ActiveTask({ quest, remainingMs, onClose, onBail, onDone }: Props) {
+export function ActiveTask({
+  quest,
+  remainingMs,
+  role,
+  onClose,
+  onBail,
+  onDone,
+  onConfirm,
+}: Props) {
   if (!quest) {
     return (
       <div className="flex h-full flex-col bg-ink px-6 pt-8 text-paper">
@@ -35,11 +45,14 @@ export function ActiveTask({ quest, remainingMs, onClose, onBail, onDone }: Prop
   const mm = String(Math.floor(secs / 60)).padStart(2, "0");
   const ss = String(secs % 60).padStart(2, "0");
   const pending = quest.status === "PENDING";
+  const confirmMine = role === "requester" && pending;
 
   return (
     <div className="flex h-full flex-col bg-ink text-paper">
       <header className="flex items-center justify-between px-5 pt-5">
-        <p className="text-xs uppercase tracking-[0.2em] text-leaf">{pending ? "Waiting confirm" : "Your walk"}</p>
+        <p className="text-xs uppercase tracking-[0.2em] text-leaf">
+          {confirmMine ? "Confirm delivery" : pending ? "Waiting confirm" : "Your walk"}
+        </p>
         <button type="button" onClick={onClose} className="text-sm text-paper/50">
           Map
         </button>
@@ -61,7 +74,11 @@ export function ActiveTask({ quest, remainingMs, onClose, onBail, onDone }: Prop
           </div>
         </div>
         <p className="mt-3 text-center text-[11px] uppercase tracking-[0.18em] text-paper/40">
-          {pending ? "Requester confirms next" : "Then it unblocks for others"}
+          {confirmMine
+            ? `${quest.helperName ?? "Helper"} marked done`
+            : pending
+              ? "Requester confirms next"
+              : "Then it unblocks for others"}
         </p>
 
         <h1 className="serif mt-8 text-4xl leading-tight">{quest.title}</h1>
@@ -71,7 +88,20 @@ export function ActiveTask({ quest, remainingMs, onClose, onBail, onDone }: Prop
         </p>
       </div>
 
-      {pending ? (
+      {confirmMine ? (
+        <div className="px-5 pb-6">
+          <p className="mb-3 rounded-2xl bg-paper/8 p-4 text-sm text-paper/70">
+            Only you can confirm. That releases +{karma} karma to {quest.helperName ?? "the helper"}.
+          </p>
+          <button
+            type="button"
+            onClick={onConfirm}
+            className="w-full rounded-full bg-leaf py-3 text-sm font-semibold text-ink"
+          >
+            Confirm
+          </button>
+        </div>
+      ) : pending ? (
         <div className="px-5 pb-6">
           <p className="rounded-2xl bg-paper/8 p-4 text-sm text-paper/70">
             Marked done. Only {quest.requesterName} can confirm — that’s when karma actually moves.

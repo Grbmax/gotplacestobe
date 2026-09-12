@@ -12,6 +12,7 @@ import { SwipeDeck } from "@/components/SwipeDeck";
 import {
   apiBailQuest,
   apiClaimQuest,
+  apiConfirmQuest,
   apiCreateQuest,
   apiCreateSession,
   apiListQuests,
@@ -158,13 +159,20 @@ export default function MapPage() {
   const feed = useMemo(() => (session ? rankedFeed(session, quests) : []), [session, quests]);
   const current = feed[index] ?? null;
   const next = feed[index + 1] ?? null;
-  const active = session
+  const myClaim = session
     ? quests.find(
         (q) =>
           q.helperId === session.id && (q.status === "CLAIMED" || q.status === "PENDING"),
       ) ?? null
     : null;
-  const left = remainingMs(active, now);
+  const pendingMine = session
+    ? quests.find((q) => q.requesterId === session.id && q.status === "PENDING") ?? null
+    : null;
+  const active =
+    myClaim?.status === "CLAIMED" ? myClaim : pendingMine ?? myClaim;
+  const activeRole: "helper" | "requester" =
+    active && pendingMine && active.id === pendingMine.id ? "requester" : "helper";
+  const left = remainingMs(myClaim?.status === "CLAIMED" ? myClaim : null, now);
 
   useEffect(() => {
     if (index >= feed.length) setIndex(Math.max(0, feed.length - 1));
@@ -253,6 +261,23 @@ export default function MapPage() {
     }
   }
 
+  async function confirm(id: string) {
+    if (!session) return;
+    setQuests((prev) =>
+      prev.map((q) =>
+        q.id === id ? { ...q, status: "CONFIRMED" as const, updatedAt: Date.now() } : q,
+      ),
+    );
+    try {
+      await apiConfirmQuest(id, session.id);
+      setFlash("Confirmed. Karma went to your helper.");
+      setTimeout(() => setFlash(null), 2800);
+      setTab("map");
+    } catch {
+      /* keep confirmed locally */
+    }
+  }
+
   async function postQuest(input: { title: string; zone: ZoneId; urgency: Urgency }) {
     if (!session) return;
     setPostBusy(true);
@@ -287,7 +312,7 @@ export default function MapPage() {
   if (!session || !youPos) return null;
 
   const timerLabel =
-    active?.status === "CLAIMED" && left > 0
+    myClaim?.status === "CLAIMED" && left > 0
       ? `${Math.floor(left / 60000)}:${String(Math.floor((left % 60000) / 1000)).padStart(2, "0")}`
       : undefined;
 
@@ -385,9 +410,11 @@ export default function MapPage() {
               <ActiveTask
                 quest={active}
                 remainingMs={left}
+                role={activeRole}
                 onClose={() => setTab("map")}
-                onBail={() => active && release(active.id)}
-                onDone={() => active && finish(active.id)}
+                onBail={() => myClaim && release(myClaim.id)}
+                onDone={() => myClaim && finish(myClaim.id)}
+                onConfirm={() => pendingMine && confirm(pendingMine.id)}
               />
             )}
             {tab === "you" && (
@@ -399,9 +426,20 @@ export default function MapPage() {
         <div className="absolute inset-x-0 bottom-0 z-50">
           <BottomNav
             tab={tab}
-            hasActive={Boolean(active)}
+            hasActive={Boolean(myClaim || pendingMine)}
             remainingLabel={timerLabel}
-            onChange={setTab}
+            onChange={(next) => {
+              if (next === "you") {
+                void apiMe(session.id)
+                  .then((me) => {
+                    saveSession(me.user);
+                    setSession(me.user);
+                    if (me.transactions.length) setTx(me.transactions);
+                  })
+                  .catch(() => undefined);
+              }
+              setTab(next);
+            }}
           />
         </div>
       </div>
