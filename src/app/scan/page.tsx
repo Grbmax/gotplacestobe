@@ -25,6 +25,7 @@ export default function ScanPage() {
   const [pastScans, setPastScans] = useState<Scan[]>([]);
   const [ghostOn, setGhostOn] = useState(true);
   const [coveredCount, setCoveredCount] = useState(0);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const scannableProperties = useMemo(() => (properties ?? []).filter((p) => !p.isSample), [properties]);
 
@@ -228,7 +229,19 @@ export default function ScanPage() {
             </div>
           )}
 
-          {!resultScan && (
+          {!resultScan && !pickerOpen && (
+            <div className="flex items-center justify-between gap-2 rounded-xl border border-zinc-700 bg-zinc-950/90 px-3 py-2 text-xs">
+              <span className="truncate text-zinc-300">
+                {scannableProperties.find((p) => p.id === propertyId)?.label ?? "No property"} ·{" "}
+                {room} / {surface.replace(/_/g, " ")}
+              </span>
+              <button type="button" onClick={() => setPickerOpen(true)} className="shrink-0 text-emerald-400">
+                Change
+              </button>
+            </div>
+          )}
+
+          {!resultScan && pickerOpen && (
             <div className="grid grid-cols-3 gap-2">
               <select
                 value={propertyId}
@@ -258,7 +271,10 @@ export default function ScanPage() {
               </select>
               <select
                 value={surface}
-                onChange={(e) => setSurface(e.target.value)}
+                onChange={(e) => {
+                  setSurface(e.target.value);
+                  setPickerOpen(false);
+                }}
                 className="rounded-xl border border-zinc-700 bg-zinc-950/90 px-2 py-2 text-xs"
               >
                 {surfaces.map((s) => (

@@ -224,17 +224,19 @@ export function Viewfinder({
         </div>
       )}
 
-      {frozenUrl ? (
+      {/* Always mounted — swapping this for an <img> on capture used to unmount the
+          element and drop its srcObject, so "back to live" required a full camera
+          restart. The frozen frame now layers on top instead of replacing it. */}
+      <video
+        ref={videoRef}
+        className="absolute inset-0 h-full w-full object-cover"
+        playsInline
+        muted
+        autoPlay
+      />
+      {frozenUrl && (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={frozenUrl} alt="Frozen frame" className="absolute inset-0 h-full w-full object-cover" />
-      ) : (
-        <video
-          ref={videoRef}
-          className="absolute inset-0 h-full w-full object-cover"
-          playsInline
-          muted
-          autoPlay
-        />
       )}
 
       {/* Line the shot up with last time — never blocks the shutter if it doesn't fit perfectly. */}
@@ -253,6 +255,7 @@ export function Viewfinder({
           width={size.w}
           height={size.h}
           className="pointer-events-none absolute inset-0 h-full w-full"
+          labeled={showResult}
         />
       )}
 
