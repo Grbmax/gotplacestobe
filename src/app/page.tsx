@@ -1,7 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { IdentityChip } from "@/components/IdentityChip";
+import { ROLE_BLURB } from "@/lib/identity";
+import { useIdentity } from "@/lib/IdentityContext";
 import type { Property } from "@/lib/types";
 
 type Summary = {
@@ -12,7 +15,9 @@ type Summary = {
 };
 
 export default function HomePage() {
-  const [rows, setRows] = useState<Summary[]>([]);
+  const { identity } = useIdentity();
+  const [rows, setRows] = useState<Summary[] | null>(null);
+  const [showAll, setShowAll] = useState(false);
   const [label, setLabel] = useState("");
   const [kind, setKind] = useState<Property["kind"]>("lease");
   const [busy, setBusy] = useState(false);
@@ -38,6 +43,7 @@ export default function HomePage() {
 
   useEffect(() => {
     void load().catch(() => setError("Could not load properties"));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function createProperty(e: React.FormEvent) {
@@ -48,7 +54,7 @@ export default function HomePage() {
       const res = await fetch("/api/properties", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ label, kind }),
+        body: JSON.stringify({ label, kind, createdBy: identity.id, createdByName: identity.name }),
       });
       if (!res.ok) throw new Error("create failed");
       setLabel("");
@@ -60,13 +66,24 @@ export default function HomePage() {
     }
   }
 
+  const visible = useMemo(() => {
+    if (!rows) return [];
+    if (showAll) return rows;
+    return rows.filter((r) => r.property.isSample || r.property.createdBy === identity.id);
+  }, [rows, showAll, identity.id]);
+
+  const hiddenCount = rows ? rows.length - visible.length : 0;
+
   return (
     <main className="mx-auto min-h-dvh max-w-md px-5 pb-28 pt-8 text-white">
-      <p className="text-[11px] uppercase tracking-[0.28em] text-emerald-400">SCAN</p>
-      <h1 className="mt-2 text-4xl font-semibold tracking-tight">Properties</h1>
-      <p className="mt-2 text-sm text-zinc-400">
-        Capture surfaces over time. Spot mold, seepage, cracks, and peeling paint before they escalate.
-      </p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-[11px] uppercase tracking-[0.28em] text-emerald-400">SCAN</p>
+          <h1 className="mt-2 text-4xl font-semibold tracking-tight">Properties</h1>
+        </div>
+        <IdentityChip className="mt-1" />
+      </div>
+      <p className="mt-2 text-sm text-zinc-400">{ROLE_BLURB[identity.role]}</p>
 
       <form onSubmit={createProperty} className="mt-8 space-y-3 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
         <label className="block text-[11px] uppercase tracking-[0.18em] text-zinc-500">New property</label>
@@ -97,28 +114,67 @@ export default function HomePage() {
 
       {error && <p className="mt-3 text-sm text-rose-400">{error}</p>}
 
-      <ul className="mt-8 space-y-3">
-        {rows.map(({ property, lastScannedAt, worstRatio, scanCount }) => (
-          <li key={property.id}>
-            <Link
-              href={`/report/${property.id}`}
-              className="block rounded-2xl border border-zinc-800 bg-zinc-900 p-4 transition hover:border-zinc-600"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-lg font-medium">{property.label}</p>
-                  <p className="mt-1 text-xs uppercase tracking-wider text-zinc-500">{property.kind}</p>
+      {rows === null ? (
+        <div className="mt-8 space-y-3">
+          {[0, 1].map((i) => (
+            <div key={i} className="h-24 animate-pulse rounded-2xl border border-zinc-800 bg-zinc-900/60" />
+          ))}
+        </div>
+      ) : visible.length === 0 ? (
+        <div className="mt-10 rounded-2xl border border-dashed border-zinc-800 p-6 text-center">
+          <p className="text-sm text-zinc-400">No properties yet.</p>
+          <p className="mt-1 text-xs text-zinc-500">Add one above, or open the scanner to see a sample report.</p>
+        </div>
+      ) : (
+        <ul className="mt-8 space-y-3">
+          {visible.map(({ property, lastScannedAt, worstRatio, scanCount }) => (
+            <li key={property.id}>
+              <Link
+                href={`/report/${property.id}`}
+                className="block rounded-2xl border border-zinc-800 bg-zinc-900 p-4 transition hover:border-zinc-600"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-lg font-medium">{property.label}</p>
+                      {property.isSample && (
+                        <span className="rounded-full bg-violet-400 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-black">
+                          Sample
+                        </span>
+                      )}
+                    </div>
+                    <p className="mt-1 text-xs uppercase tracking-wider text-zinc-500">{property.kind}</p>
+                  </div>
+                  {scanCount > 0 && <p className="text-sm text-emerald-300">{(worstRatio * 100).toFixed(1)}%</p>}
                 </div>
-                <p className="text-sm text-emerald-300">{(worstRatio * 100).toFixed(1)}%</p>
-              </div>
-              <p className="mt-3 text-xs text-zinc-400">
-                {scanCount} scan{scanCount === 1 ? "" : "s"}
-                {lastScannedAt ? ` · last ${new Date(lastScannedAt).toLocaleString()}` : " · never scanned"}
-              </p>
-            </Link>
-          </li>
-        ))}
-      </ul>
+                <p className="mt-3 text-xs text-zinc-400">
+                  {scanCount} scan{scanCount === 1 ? "" : "s"}
+                  {lastScannedAt ? ` · last ${new Date(lastScannedAt).toLocaleString()}` : " · never scanned"}
+                </p>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {hiddenCount > 0 && !showAll && (
+        <button
+          type="button"
+          onClick={() => setShowAll(true)}
+          className="mt-4 w-full text-center text-xs text-zinc-500 underline underline-offset-4"
+        >
+          Show {hiddenCount} more from other people testing this
+        </button>
+      )}
+      {showAll && (
+        <button
+          type="button"
+          onClick={() => setShowAll(false)}
+          className="mt-4 w-full text-center text-xs text-zinc-500 underline underline-offset-4"
+        >
+          Show only mine
+        </button>
+      )}
 
       <div className="fixed inset-x-0 bottom-0 z-20 border-t border-zinc-800 bg-zinc-950/95 p-4 backdrop-blur">
         <div className="mx-auto max-w-md">

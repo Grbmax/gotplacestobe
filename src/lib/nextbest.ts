@@ -34,7 +34,10 @@ function priorRisk(surfaceKey: string) {
 }
 
 function coverageScore(scanCount: number) {
-  return Math.min(scanCount / 2, 1);
+  // Capped below 1 so a well-covered surface can never be fully zeroed out —
+  // otherwise recencyDecay could never bring it back into rotation after a
+  // long gap, even though "due for a recheck" is a reason string we actually emit.
+  return Math.min(scanCount / 2, 1) * 0.85;
 }
 
 function recencyDecay(lastScannedAt: string | null) {

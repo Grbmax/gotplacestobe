@@ -5,8 +5,11 @@ import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CompareView } from "@/components/CompareView";
 import { DetectorBadge } from "@/components/DetectorBadge";
+import { IdentityChip } from "@/components/IdentityChip";
 import { ScanCard } from "@/components/ScanCard";
 import { Timeline } from "@/components/Timeline";
+import { ROLE_LABEL } from "@/lib/identity";
+import { useIdentity } from "@/lib/IdentityContext";
 import { surfaceTrend } from "@/lib/progression";
 import type { Property, Review, Scan } from "@/lib/types";
 
@@ -20,9 +23,12 @@ type Group = {
 export default function ReportPage() {
   const params = useParams<{ propertyId: string }>();
   const propertyId = params.propertyId;
+  const { identity } = useIdentity();
   const [property, setProperty] = useState<Property | null>(null);
   const [scans, setScans] = useState<Scan[]>([]);
-  const [role, setRole] = useState<Review["reviewerRole"]>("tenant");
+  const [reviewingAsSelf, setReviewingAsSelf] = useState(true);
+  const [overrideRole, setOverrideRole] = useState<Review["reviewerRole"]>(identity.role);
+  const role = reviewingAsSelf ? identity.role : overrideRole;
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -55,7 +61,12 @@ export default function ReportPage() {
     const res = await fetch(`/api/scans/${scanId}/review`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ verdict, reviewerRole: role }),
+      body: JSON.stringify({
+        verdict,
+        reviewerRole: role,
+        reviewerId: reviewingAsSelf ? identity.id : undefined,
+        reviewerName: reviewingAsSelf ? identity.name : undefined,
+      }),
     });
     if (!res.ok) {
       setError("Review failed");
@@ -74,25 +85,52 @@ export default function ReportPage() {
         <Link href="/" className="text-xs uppercase tracking-[0.2em] text-emerald-400">
           SCAN
         </Link>
-        <Link href="/scan" className="rounded-full bg-emerald-400 px-3 py-1.5 text-xs font-semibold text-black">
-          New scan
-        </Link>
+        <div className="flex items-center gap-2">
+          <IdentityChip />
+          <Link href="/scan" className="rounded-full bg-emerald-400 px-3 py-1.5 text-xs font-semibold text-black">
+            New scan
+          </Link>
+        </div>
       </div>
 
       <h1 className="mt-4 text-3xl font-semibold tracking-tight">{property?.label ?? "Unknown"}</h1>
       <p className="mt-1 text-sm text-zinc-400">{property?.kind} · {scans.length} scans</p>
 
       <div className="mt-4 flex items-center gap-2 text-xs text-zinc-400">
-        <span>Review as</span>
-        <select
-          value={role}
-          onChange={(e) => setRole(e.target.value as Review["reviewerRole"])}
-          className="rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1"
-        >
-          <option value="tenant">tenant</option>
-          <option value="owner">owner</option>
-          <option value="inspector">inspector</option>
-        </select>
+        {reviewingAsSelf ? (
+          <>
+            <span>
+              Reviewing as <span className="text-zinc-200">{identity.name}</span> ({ROLE_LABEL[identity.role]})
+            </span>
+            <button
+              type="button"
+              onClick={() => setReviewingAsSelf(false)}
+              className="underline underline-offset-2 text-zinc-500"
+            >
+              not you?
+            </button>
+          </>
+        ) : (
+          <>
+            <span>Reviewing as</span>
+            <select
+              value={overrideRole}
+              onChange={(e) => setOverrideRole(e.target.value as Review["reviewerRole"])}
+              className="rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1"
+            >
+              <option value="tenant">{ROLE_LABEL.tenant}</option>
+              <option value="owner">{ROLE_LABEL.owner}</option>
+              <option value="inspector">{ROLE_LABEL.inspector}</option>
+            </select>
+            <button
+              type="button"
+              onClick={() => setReviewingAsSelf(true)}
+              className="underline underline-offset-2 text-zinc-500"
+            >
+              use my role
+            </button>
+          </>
+        )}
       </div>
 
       {error && <p className="mt-3 text-sm text-rose-400">{error}</p>}

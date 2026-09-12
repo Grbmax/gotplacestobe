@@ -97,13 +97,18 @@ export function Viewfinder({
   function shutter() {
     const video = videoRef.current;
     if (!video || !video.videoWidth) return;
+    // Full native camera resolution (often 3000px+) makes for a multi-MB data
+    // URL — expensive to send to Gemini, and currently stored inline in Mongo
+    // when no Blob token is set. Cap the long edge; plenty for defect detection.
+    const MAX_EDGE = 1440;
+    const scale = Math.min(1, MAX_EDGE / Math.max(video.videoWidth, video.videoHeight));
     const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
+    canvas.width = Math.round(video.videoWidth * scale);
+    canvas.height = Math.round(video.videoHeight * scale);
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    ctx.drawImage(video, 0, 0);
-    onCapture(canvas.toDataURL("image/jpeg", 0.92));
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    onCapture(canvas.toDataURL("image/jpeg", 0.85));
   }
 
   const showResult = Boolean(frozenUrl && resultDetections);
@@ -166,9 +171,7 @@ export function Viewfinder({
       )}
 
       <div className="absolute left-3 top-3 z-10">
-        <DetectorBadge
-          detector={showResult && resultDetector ? resultDetector : analyzing ? "preview" : "preview"}
-        />
+        <DetectorBadge detector={showResult && resultDetector ? resultDetector : "preview"} />
       </div>
 
       {analyzing && (
