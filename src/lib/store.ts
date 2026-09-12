@@ -1,353 +1,290 @@
-import { CLAIM_MS, KARMA_COST, zoneById } from "./data";
-import { getDb } from "./db";
-import type { Quest, Session, Transaction, Urgency, ZoneId } from "./types";
+import { persistImage } from "./blob";
+import { hasMongo, getDb } from "./db";
+import { runDetect } from "./detect";
+import { totalAffectedRatio } from "./mockMath";
+import type { Property, Review, Scan, SurfaceCoverage } from "./types";
 
-type UserDoc = Omit<Session, "id"> & { _id: string };
-type QuestDoc = Omit<Quest, "id"> & { _id: string };
-type TxDoc = Omit<Transaction, "id"> & { _id: string; ownerId: string };
+type PropertyDoc = Omit<Property, "id"> & { _id: string };
+type ScanDoc = Omit<Scan, "id"> & { _id: string };
 
-function stamp() {
-  return Date.now();
+const mem = {
+  properties: [] as Property[],
+  scans: [] as Scan[],
+  seeded: false,
+};
+
+function id(prefix: string) {
+  return `${prefix}_${crypto.randomUUID().slice(0, 8)}`;
 }
 
-function asUser(doc: UserDoc): Session {
-  return {
-    id: doc._id,
-    name: doc.name,
-    zone: doc.zone,
-    karma: doc.karma,
-    completed: doc.completed,
-    bailed: doc.bailed,
+function weeksAgo(weeks: number) {
+  return new Date(Date.now() - weeks * 7 * 24 * 3_600_000).toISOString();
+}
+
+function sampleSeed(): { property: Property; scans: Scan[] } {
+  const property: Property = {
+    id: "prop_sample_beacon",
+    label: "5614 Beacon St",
+    kind: "lease",
+    createdAt: weeksAgo(6),
   };
-}
-
-function asQuest(doc: QuestDoc): Quest {
-  return {
-    id: doc._id,
-    requesterId: doc.requesterId,
-    requesterName: doc.requesterName,
-    helperId: doc.helperId,
-    helperName: doc.helperName,
-    title: doc.title,
-    detail: doc.detail,
-    zone: doc.zone,
-    lat: doc.lat,
-    lng: doc.lng,
-    urgency: doc.urgency,
-    baseKarma: doc.baseKarma,
-    bonusKarma: doc.bonusKarma,
-    status: doc.status,
-    createdAt: doc.createdAt,
-    updatedAt: doc.updatedAt,
-    claimedAt: doc.claimedAt,
-  };
-}
-
-function asTx(doc: TxDoc): Transaction {
-  return {
-    id: doc._id,
-    fromUserId: doc.fromUserId,
-    toUserId: doc.toUserId,
-    questId: doc.questId,
-    label: doc.label,
-    amount: doc.amount,
-    when: doc.when,
-  };
-}
-
-async function expireStaleClaims() {
-  const db = await getDb();
-  const now = stamp();
-  const cutoff = now - CLAIM_MS;
-  const stale = await db
-    .collection<QuestDoc>("quests")
-    .find({ status: "CLAIMED", claimedAt: { $lte: cutoff } })
-    .toArray();
-
-  for (const quest of stale) {
-    if (quest.helperId) {
-      await db.collection<UserDoc>("users").updateOne({ _id: quest.helperId }, { $inc: { bailed: 1 } });
-    }
-  }
-
-  if (stale.length) {
-    await db.collection<QuestDoc>("quests").updateMany(
-      { status: "CLAIMED", claimedAt: { $lte: cutoff } },
-      {
-        $set: { status: "OPEN", updatedAt: now },
-        $unset: { helperId: "", helperName: "", claimedAt: "" },
-      },
-    );
-  }
-}
-
-export async function createUser(name: string, zone: ZoneId): Promise<Session> {
-  const db = await getDb();
-  const user: UserDoc = {
-    _id: crypto.randomUUID(),
-    name,
-    zone,
-    karma: 100,
-    completed: 3,
-    bailed: 0,
-  };
-  await db.collection<UserDoc>("users").insertOne(user);
-
-  const seedTx: TxDoc[] = [
+  const baseDetsEarly = [
     {
-      _id: `t1_${user._id}`,
-      ownerId: user._id,
-      label: "Confirmed · charger walk",
-      amount: 30,
-      when: "Today 01:12",
-    },
-    {
-      _id: `t2_${user._id}`,
-      ownerId: user._id,
-      label: "Posted · HDMI swap",
-      amount: -20,
-      when: "Today 00:48",
-    },
-    {
-      _id: `t3_${user._id}`,
-      ownerId: user._id,
-      label: "Confirmed · hold table",
-      amount: 25,
-      when: "Thu 23:10",
+      cls: "mold" as const,
+      confidence: 0.62,
+      bbox: [0.32, 0.18, 0.22, 0.16] as [number, number, number, number],
+      areaRatio: 0.04,
     },
   ];
-  await db.collection<TxDoc>("transactions").insertMany(seedTx);
-  return asUser(user);
-}
-
-export async function getUser(id: string): Promise<Session | null> {
-  const db = await getDb();
-  const doc = await db.collection<UserDoc>("users").findOne({ _id: id });
-  return doc ? asUser(doc) : null;
-}
-
-export async function listQuests(since?: number) {
-  await expireStaleClaims();
-  const db = await getDb();
-  const filter = since ? { updatedAt: { $gt: since } } : {};
-  const docs = await db.collection<QuestDoc>("quests").find(filter).sort({ updatedAt: -1 }).toArray();
-  return { quests: docs.map(asQuest), serverTime: stamp() };
-}
-
-export async function createQuest(input: {
-  userId: string;
-  title: string;
-  zone: ZoneId;
-  urgency: Urgency;
-}) {
-  const db = await getDb();
-  const userDoc = await db.collection<UserDoc>("users").findOne({ _id: input.userId });
-  if (!userDoc) return { error: "Unknown session" as const };
-
-  const cost = KARMA_COST[input.urgency];
-  const total = cost.base + cost.bonus;
-  if (userDoc.karma < total) return { error: "Not enough karma" as const };
-
-  const now = stamp();
-  const title = input.title.trim() || "Need a hand nearby";
-  const z = zoneById(input.zone);
-  const jitter = (seed: number) => ((seed % 17) - 8) * 0.00003;
-  const quest: QuestDoc = {
-    _id: `q_${now}`,
-    requesterId: userDoc._id,
-    requesterName: userDoc.name,
-    title,
-    detail: `${title} · posted from ${userDoc.zone}. Only ${userDoc.name} can confirm.`,
-    zone: input.zone,
-    lat: z.lat + jitter(now),
-    lng: z.lng + jitter(now >> 2),
-    urgency: input.urgency,
-    baseKarma: cost.base,
-    bonusKarma: cost.bonus,
-    status: "OPEN",
-    createdAt: "just now",
-    updatedAt: now,
-  };
-
-  const updated = await db.collection<UserDoc>("users").findOneAndUpdate(
-    { _id: userDoc._id, karma: { $gte: total } },
-    { $inc: { karma: -total } },
-    { returnDocument: "after" },
-  );
-  if (!updated) return { error: "Not enough karma" as const };
-
-  await db.collection<QuestDoc>("quests").insertOne(quest);
-
-  const tx: TxDoc = {
-    _id: `tx_${now}`,
-    ownerId: userDoc._id,
-    fromUserId: userDoc._id,
-    questId: quest._id,
-    label: `Posted · ${quest.title}`,
-    amount: -total,
-    when: "Just now",
-  };
-  await db.collection<TxDoc>("transactions").insertOne(tx);
-  return { quest: asQuest(quest), user: asUser(updated) };
-}
-
-export async function claimQuest(id: string, userId: string) {
-  const db = await getDb();
-  const userDoc = await db.collection<UserDoc>("users").findOne({ _id: userId });
-  if (!userDoc) return { error: "Not found" as const };
-
-  const existing = await db.collection<QuestDoc>("quests").findOne({ _id: id });
-  if (!existing) return { error: "Not found" as const };
-  if (existing.status !== "OPEN") return { error: "Already taken" as const };
-  if (existing.requesterId === userDoc._id) return { error: "That’s your quest" as const };
-
-  const now = stamp();
-  const updated = await db.collection<QuestDoc>("quests").findOneAndUpdate(
-    { _id: id, status: "OPEN" },
+  const baseDetsLate = [
     {
-      $set: {
-        status: "CLAIMED",
-        helperId: userDoc._id,
-        helperName: userDoc.name,
-        claimedAt: now,
-        updatedAt: now,
-      },
+      cls: "mold" as const,
+      confidence: 0.78,
+      bbox: [0.28, 0.14, 0.3, 0.22] as [number, number, number, number],
+      areaRatio: 0.08,
     },
-    { returnDocument: "after" },
-  );
-  if (!updated) return { error: "Already taken" as const };
-  return { quest: asQuest(updated), user: asUser(userDoc) };
-}
-
-export async function bailQuest(id: string, userId: string) {
-  await expireStaleClaims();
-  const db = await getDb();
-  const userDoc = await db.collection<UserDoc>("users").findOne({ _id: userId });
-  if (!userDoc) return { error: "Not found" as const };
-
-  const quest = await db.collection<QuestDoc>("quests").findOne({ _id: id });
-  if (!quest) return { error: "Not found" as const };
-  if (quest.status !== "CLAIMED" || quest.helperId !== userDoc._id) {
-    return { error: "Not your claim" as const };
-  }
-
-  const now = stamp();
-  const updatedQuest = await db.collection<QuestDoc>("quests").findOneAndUpdate(
-    { _id: id, status: "CLAIMED", helperId: userDoc._id },
     {
-      $set: { status: "OPEN", updatedAt: now },
-      $unset: { helperId: "", helperName: "", claimedAt: "" },
+      cls: "water_seepage" as const,
+      confidence: 0.55,
+      bbox: [0.55, 0.2, 0.18, 0.14] as [number, number, number, number],
+      areaRatio: 0.03,
     },
-    { returnDocument: "after" },
-  );
-  if (!updatedQuest) return { error: "Not your claim" as const };
+  ];
+  const placeholder =
+    "data:image/svg+xml;base64," +
+    Buffer.from(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480"><rect fill="#2a2a2a" width="100%" height="100%"/><text x="50%" y="48%" fill="#aaa" font-size="22" text-anchor="middle" font-family="sans-serif">Sample ceiling vent</text></svg>`,
+    ).toString("base64");
 
-  const updatedUser = await db.collection<UserDoc>("users").findOneAndUpdate(
-    { _id: userDoc._id },
-    { $inc: { bailed: 1 } },
-    { returnDocument: "after" },
-  );
-  if (!updatedUser) return { error: "Not found" as const };
-  return { quest: asQuest(updatedQuest), user: asUser(updatedUser) };
+  const scans: Scan[] = [
+    {
+      id: "scan_sample_early",
+      propertyId: property.id,
+      room: "bathroom",
+      surface: "ceiling_vent",
+      imageUrl: placeholder,
+      capturedAt: weeksAgo(5),
+      detections: baseDetsEarly,
+      totalAffectedRatio: 0.04,
+      finding: "Sample — faint discoloration near the ceiling vent.",
+      detector: "mock",
+      isSample: true,
+    },
+    {
+      id: "scan_sample_late",
+      propertyId: property.id,
+      room: "bathroom",
+      surface: "ceiling_vent",
+      imageUrl: placeholder,
+      capturedAt: weeksAgo(0),
+      detections: baseDetsLate,
+      totalAffectedRatio: 0.11,
+      finding: "Sample — mold and seepage marks have spread around the vent.",
+      detector: "mock",
+      isSample: true,
+    },
+  ];
+  return { property, scans };
 }
 
-export async function markDone(id: string, userId: string) {
-  await expireStaleClaims();
-  const db = await getDb();
-  const userDoc = await db.collection<UserDoc>("users").findOne({ _id: userId });
-  if (!userDoc) return { error: "Not found" as const };
-
-  const quest = await db.collection<QuestDoc>("quests").findOne({ _id: id });
-  if (!quest) return { error: "Not found" as const };
-  if (quest.status !== "CLAIMED" || quest.helperId !== userDoc._id) {
-    return { error: "Not your claim" as const };
-  }
-
-  const now = stamp();
-  const updated = await db.collection<QuestDoc>("quests").findOneAndUpdate(
-    { _id: id, status: "CLAIMED", helperId: userDoc._id },
-    { $set: { status: "PENDING", updatedAt: now } },
-    { returnDocument: "after" },
-  );
-  if (!updated) return { error: "Not your claim" as const };
-  return { quest: asQuest(updated), user: asUser(userDoc) };
-}
-
-export async function confirmQuest(id: string, userId: string) {
-  const db = await getDb();
-  const quest = await db.collection<QuestDoc>("quests").findOne({ _id: id });
-  if (!quest) return { error: "Not found" as const };
-  if (quest.status !== "PENDING") return { error: "Not pending" as const };
-  if (quest.requesterId !== userId) {
-    return { error: "Only the requester can confirm" as const };
-  }
-  if (!quest.helperId) return { error: "Not found" as const };
-
-  const helperDoc = await db.collection<UserDoc>("users").findOne({ _id: quest.helperId });
-  if (!helperDoc) return { error: "Not found" as const };
-
-  const total = quest.baseKarma + quest.bonusKarma;
-  const now = stamp();
-
-  const updatedQuest = await db.collection<QuestDoc>("quests").findOneAndUpdate(
-    { _id: id, status: "PENDING", requesterId: userId },
-    { $set: { status: "CONFIRMED", updatedAt: now } },
-    { returnDocument: "after" },
-  );
-  if (!updatedQuest) return { error: "Not pending" as const };
-
-  const helper = await db.collection<UserDoc>("users").findOneAndUpdate(
-    { _id: helperDoc._id },
-    { $inc: { karma: total, completed: 1 } },
-    { returnDocument: "after" },
-  );
-  if (!helper) return { error: "Not found" as const };
-
-  const transaction: TxDoc = {
-    _id: `tx_${now}`,
-    ownerId: helper._id,
-    toUserId: helper._id,
-    questId: updatedQuest._id,
-    label: `Confirmed · ${updatedQuest.title}`,
-    amount: total,
-    when: "Just now",
-  };
-  await db.collection<TxDoc>("transactions").insertOne(transaction);
-  return { quest: asQuest(updatedQuest), user: asUser(helper), transaction: asTx(transaction) };
-}
-
-export async function getMe(userId: string) {
-  const db = await getDb();
-  const userDoc = await db.collection<UserDoc>("users").findOne({ _id: userId });
-  if (!userDoc) return null;
-  const txs = await db
-    .collection<TxDoc>("transactions")
-    .find({ ownerId: userId })
-    .sort({ _id: -1 })
-    .toArray();
-  return { user: asUser(userDoc), transactions: txs.map(asTx) };
-}
-
-export async function getConfirmedEdges() {
-  const db = await getDb();
-  const docs = await db
-    .collection<QuestDoc>("quests")
-    .find({ status: "CONFIRMED" })
-    .sort({ updatedAt: 1 })
-    .toArray();
-
-  const edges = [];
-  for (const doc of docs) {
-    if (!doc.helperId || !doc.requesterId) continue;
-    edges.push({
-      from: doc.helperId,
-      fromName: doc.helperName ?? "Helper",
-      to: doc.requesterId,
-      toName: doc.requesterName,
-      title: doc.title,
-      karma: doc.baseKarma + doc.bonusKarma,
-      at: doc.updatedAt,
+async function ensureSeed() {
+  if (hasMongo()) {
+    const db = await getDb();
+    const count = await db.collection("properties").countDocuments();
+    if (count > 0) return;
+    const { property, scans } = sampleSeed();
+    await db.collection<PropertyDoc>("properties").insertOne({
+      _id: property.id,
+      label: property.label,
+      kind: property.kind,
+      createdAt: property.createdAt,
     });
+    await db.collection<ScanDoc>("scans").insertMany(
+      scans.map((s) => {
+        const { id, ...rest } = s;
+        return { _id: id, ...rest };
+      }),
+    );
+    return;
   }
-  return edges;
+  if (mem.seeded) return;
+  const { property, scans } = sampleSeed();
+  mem.properties = [property];
+  mem.scans = scans;
+  mem.seeded = true;
+}
+
+function asProperty(doc: PropertyDoc): Property {
+  return { id: doc._id, label: doc.label, kind: doc.kind, createdAt: doc.createdAt };
+}
+
+function asScan(doc: ScanDoc): Scan {
+  return {
+    id: doc._id,
+    propertyId: doc.propertyId,
+    room: doc.room,
+    surface: doc.surface,
+    imageUrl: doc.imageUrl,
+    capturedAt: doc.capturedAt,
+    detections: doc.detections,
+    totalAffectedRatio: doc.totalAffectedRatio,
+    finding: doc.finding,
+    detector: doc.detector,
+    review: doc.review,
+    isSample: doc.isSample,
+  };
+}
+
+export async function listProperties(): Promise<Property[]> {
+  await ensureSeed();
+  if (!hasMongo()) return [...mem.properties].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const db = await getDb();
+  const docs = await db.collection<PropertyDoc>("properties").find({}).sort({ createdAt: -1 }).toArray();
+  return docs.map(asProperty);
+}
+
+export async function createProperty(input: { label: string; kind: Property["kind"] }): Promise<Property> {
+  await ensureSeed();
+  const property: Property = {
+    id: id("prop"),
+    label: input.label.trim() || "Untitled property",
+    kind: input.kind,
+    createdAt: new Date().toISOString(),
+  };
+  if (!hasMongo()) {
+    mem.properties.unshift(property);
+    return property;
+  }
+  const db = await getDb();
+  await db.collection<PropertyDoc>("properties").insertOne({
+    _id: property.id,
+    label: property.label,
+    kind: property.kind,
+    createdAt: property.createdAt,
+  });
+  return property;
+}
+
+export async function listScans(filter: {
+  propertyId?: string;
+  room?: string;
+  surface?: string;
+}): Promise<Scan[]> {
+  await ensureSeed();
+  if (!hasMongo()) {
+    return mem.scans
+      .filter((s) => {
+        if (filter.propertyId && s.propertyId !== filter.propertyId) return false;
+        if (filter.room && s.room !== filter.room) return false;
+        if (filter.surface && s.surface !== filter.surface) return false;
+        return true;
+      })
+      .sort((a, b) => b.capturedAt.localeCompare(a.capturedAt));
+  }
+  const db = await getDb();
+  const q: Record<string, string> = {};
+  if (filter.propertyId) q.propertyId = filter.propertyId;
+  if (filter.room) q.room = filter.room;
+  if (filter.surface) q.surface = filter.surface;
+  const docs = await db.collection<ScanDoc>("scans").find(q).sort({ capturedAt: -1 }).toArray();
+  return docs.map(asScan);
+}
+
+export async function getScan(id: string): Promise<Scan | null> {
+  await ensureSeed();
+  if (!hasMongo()) return mem.scans.find((s) => s.id === id) ?? null;
+  const db = await getDb();
+  const doc = await db.collection<ScanDoc>("scans").findOne({ _id: id });
+  return doc ? asScan(doc) : null;
+}
+
+export async function createScan(input: {
+  propertyId: string;
+  room: string;
+  surface: string;
+  image: string;
+}): Promise<Scan> {
+  await ensureSeed();
+  const detected = await runDetect(input.image);
+  const imageUrl = await persistImage(input.image, id("img"));
+  const scan: Scan = {
+    id: id("scan"),
+    propertyId: input.propertyId,
+    room: input.room.trim() || "room",
+    surface: input.surface.trim() || "surface",
+    imageUrl,
+    capturedAt: new Date().toISOString(),
+    detections: detected.detections,
+    totalAffectedRatio: totalAffectedRatio(detected.detections),
+    finding: detected.finding,
+    detector: detected.detector,
+  };
+
+  if (!hasMongo()) {
+    mem.scans.unshift(scan);
+    return scan;
+  }
+  const db = await getDb();
+  const { id: scanId, ...rest } = scan;
+  await db.collection<ScanDoc>("scans").insertOne({ _id: scanId, ...rest });
+  return scan;
+}
+
+export async function reviewScan(
+  id: string,
+  review: Omit<Review, "at"> & { note?: string },
+): Promise<Scan | null> {
+  await ensureSeed();
+  const payload: Review = {
+    verdict: review.verdict,
+    reviewerRole: review.reviewerRole,
+    note: review.note,
+    at: new Date().toISOString(),
+  };
+  if (!hasMongo()) {
+    const idx = mem.scans.findIndex((s) => s.id === id);
+    if (idx < 0) return null;
+    mem.scans[idx] = { ...mem.scans[idx]!, review: payload };
+    return mem.scans[idx]!;
+  }
+  const db = await getDb();
+  const updated = await db.collection<ScanDoc>("scans").findOneAndUpdate(
+    { _id: id },
+    { $set: { review: payload } },
+    { returnDocument: "after" },
+  );
+  return updated ? asScan(updated) : null;
+}
+
+export async function surfaceCoverage(propertyId: string): Promise<SurfaceCoverage[]> {
+  const scans = await listScans({ propertyId });
+  const map = new Map<string, SurfaceCoverage>();
+  for (const s of scans) {
+    const key = `${s.room}::${s.surface}`;
+    const cur = map.get(key);
+    if (!cur) {
+      map.set(key, {
+        room: s.room,
+        surface: s.surface,
+        lastScannedAt: s.capturedAt,
+        scanCount: 1,
+      });
+    } else {
+      cur.scanCount += 1;
+      if (!cur.lastScannedAt || s.capturedAt > cur.lastScannedAt) cur.lastScannedAt = s.capturedAt;
+    }
+  }
+  return [...map.values()];
+}
+
+export async function propertySummaries() {
+  const properties = await listProperties();
+  const out = [];
+  for (const p of properties) {
+    const scans = await listScans({ propertyId: p.id });
+    const last = scans[0] ?? null;
+    const worst = scans.reduce((m, s) => Math.max(m, s.totalAffectedRatio), 0);
+    out.push({ property: p, lastScannedAt: last?.capturedAt ?? null, worstRatio: worst, scanCount: scans.length });
+  }
+  return out;
 }

@@ -12,16 +12,19 @@ function getUri() {
 
 function getClientPromise() {
   if (!globalForMongo._mongoClientPromise) {
-    // Vercel's serverless functions can route to Atlas over IPv6, which surfaces
-    // as a garbled TLS handshake ("SSL alert number 80") instead of a clean
-    // connection error. Forcing IPv4 avoids that class of failure.
+    // Vercel serverless → Atlas over IPv6 can fail TLS with "SSL alert number 80".
+    // Force IPv4 so the handshake succeeds.
     const client = new MongoClient(getUri(), { family: 4 });
     globalForMongo._mongoClientPromise = client.connect();
   }
   return globalForMongo._mongoClientPromise;
 }
 
+export function hasMongo() {
+  return Boolean(process.env.MONGODB_URI);
+}
+
 export async function getDb(): Promise<Db> {
   const client = await getClientPromise();
-  return client.db();
+  return client.db("scan");
 }
