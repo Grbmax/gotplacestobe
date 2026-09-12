@@ -56,4 +56,5 @@ export type SurfaceCoverage = {
   surface: string;
   lastScannedAt: string | null;
   scanCount: number;
+  lastDetections?: Detection[];
 };

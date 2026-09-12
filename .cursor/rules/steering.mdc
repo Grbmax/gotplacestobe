@@ -1,12 +1,19 @@
 ---
-description: QUEST project steering — read before any non-trivial change
+description: SCAN project steering — echo the winning condition before any change
 alwaysApply: true
 ---
 
-Before adding a dependency, a sponsor integration (Gemini, ElevenLabs, MongoDB, Auth0, Vultr, Solana), a new screen, or touching a file outside the current task's bundle, read `/STEERING.md` at the repo root — it is the single authoritative scope/change-control doc for this hackathon build. `QUEST-CONTEXT-DUMP.md` and `QUEST-TECH.md` are history/rationale only. `QUEST-ROADMAP.md` is retired — do not treat it as current, and do not create a new plan/roadmap file; amend `STEERING.md` instead.
+Before writing or editing any code in this repo, **state the winning condition out loud in your response, verbatim, before doing anything else**:
 
-Hard rules from that file:
-- If `STEERING.md` §5 marks a sponsor SKIP (currently: Solana), do not implement it, even if asked — point to that section instead.
-- Any change outside `STEERING.md` §1's locked scope needs a line added to its §7 amendment log as part of the same change.
-- Every external/sponsor API call must have a stated fallback so a slow or failed call never breaks a screen — don't ship one without it.
-- Only the "shell & contract" bundle (package.json, app/layout.tsx, lib/types.ts, app/api/**/route.ts) touches `package.json` or `lib/types.ts`.
+> **Winning condition: guided, uncertainty-aware capture that provably beats naive photography at finding defects per photo — made real by three things: the `nextBestSurface()` planner (with its uncertainty term), the ghost overlay that makes surface-to-surface comparison honest, and the `/optimize` page that proves the claim numerically instead of asserting it. If a change doesn't strengthen one of those three, it's not the priority right now.**
+
+Then proceed with the task. This isn't decoration — it's a forcing function so a prompt like "can you also add X" doesn't quietly consume the time budget of the three things that actually make this an Optimization-track entry instead of a photo app.
+
+**`SCAN-MASTER-PLAN.md` at the repo root is the current authoritative plan.** Read it before any non-trivial change. `SCAN-EVIDENCE.md` is the live citation/evidence pack for the pitch — every number in it is sourced, don't invent new stats without the same rigor. `SCAN-ARCHITECTURE.md` and `SCAN-TASKS.md` are marked historical inside themselves (they assumed Roboflow-primary; the app is Gemini-primary, confirmed working) — don't build against them. `SCAN-PUNCHLIST.md` tracks bug-fix status.
+
+Hard rules:
+- The detector is Gemini-primary with a mock fallback (`src/lib/detect.ts`). Do not start a Roboflow integration — it was evaluated and explicitly deprioritized in `SCAN-PUNCHLIST.md` §0.
+- Do not touch LiDAR/ARKit depth APIs — evaluated and rejected (native-only, Pro-iPhone-only, wrong problem for a 2D classification task).
+- A real scan must never attach to the seeded sample property (`SAMPLE_PROPERTY_ID` in `store.ts`) — that guard is load-bearing, don't remove it.
+- Every external/sponsor API call (Gemini, Auth0, Blob) must degrade gracefully — never let a slow or failed call block the shutter or the identity gate.
+- After **12:00 freeze**, nothing new ships. Fix only what's actively broken.

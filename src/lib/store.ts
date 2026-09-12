@@ -359,11 +359,13 @@ export async function surfaceCoverage(propertyId: string): Promise<SurfaceCovera
     const key = `${s.room}::${s.surface}`;
     const cur = map.get(key);
     if (!cur) {
+      // listScans returns newest-first, so the first hit per key is the latest scan.
       map.set(key, {
         room: s.room,
         surface: s.surface,
         lastScannedAt: s.capturedAt,
         scanCount: 1,
+        lastDetections: s.detections,
       });
     } else {
       cur.scanCount += 1;

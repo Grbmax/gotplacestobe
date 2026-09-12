@@ -94,7 +94,12 @@ export default function ReportPage() {
       </div>
 
       <h1 className="mt-4 text-3xl font-semibold tracking-tight">{property?.label ?? "Unknown"}</h1>
-      <p className="mt-1 text-sm text-zinc-400">{property?.kind} · {scans.length} scans</p>
+      <div className="mt-1 flex items-center justify-between gap-2">
+        <p className="text-sm text-zinc-400">{property?.kind} · {scans.length} scans</p>
+        <Link href={`/optimize/${propertyId}`} className="text-xs text-emerald-400 underline underline-offset-4">
+          Guided vs. naive →
+        </Link>
+      </div>
 
       <div className="mt-4 flex items-center gap-2 text-xs text-zinc-400">
         {reviewingAsSelf ? (
