@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { IdentityContext } from "@/lib/IdentityContext";
 import { BottomNav } from "@/components/BottomNav";
 import { GoogleSignInButton } from "@/components/GoogleSignInButton";
+import { clearLastHouse } from "@/lib/activeHouse";
 import { clearIdentity, identityIdFromName, loadIdentity, ROLE_BLURB, ROLE_LABEL, ROLES, saveIdentity } from "@/lib/identity";
 import type { Identity, Role } from "@/lib/types";
 
@@ -93,23 +94,12 @@ function RolePicker({
 
 function rememberIntended(pathname: string) {
   if (typeof window === "undefined") return;
-  if (pathname && pathname !== "/") {
-    try {
-      sessionStorage.setItem(INTENDED_KEY, pathname + window.location.search);
-    } catch {
-      /* ignore */
-    }
+  if (!pathname || pathname === "/") return;
+  if (pathname.startsWith("/report") || pathname.startsWith("/optimize") || pathname.startsWith("/scan")) {
+    return;
   }
-}
-
-function restoreIntended(router: ReturnType<typeof useRouter>) {
-  if (typeof window === "undefined") return;
   try {
-    const intended = sessionStorage.getItem(INTENDED_KEY);
-    if (intended && intended !== window.location.pathname + window.location.search) {
-      sessionStorage.removeItem(INTENDED_KEY);
-      router.replace(intended);
-    }
+    sessionStorage.setItem(INTENDED_KEY, pathname + window.location.search);
   } catch {
     /* ignore */
   }
@@ -152,7 +142,13 @@ export function IdentityGate({ children }: { children: React.ReactNode }) {
             const identity: Identity = { id: identityIdFromName(liteName), name: liteName.trim(), role };
             saveIdentity(identity);
             setLiteIdentity(identity);
-            restoreIntended(router);
+            clearLastHouse();
+            try {
+              sessionStorage.removeItem(INTENDED_KEY);
+            } catch {
+              /* ignore */
+            }
+            router.replace("/");
           }}
         />
       );
@@ -164,6 +160,12 @@ export function IdentityGate({ children }: { children: React.ReactNode }) {
           authMode: "lite",
           switchIdentity: () => {
             clearIdentity();
+            clearLastHouse();
+            try {
+              sessionStorage.removeItem(INTENDED_KEY);
+            } catch {
+              /* ignore */
+            }
             setLiteIdentity(null);
           },
         }}
@@ -224,7 +226,13 @@ export function IdentityGate({ children }: { children: React.ReactNode }) {
               identity: { id: me.id, name: me.name, role },
               clientId: me.clientId,
             });
-            restoreIntended(router);
+            clearLastHouse();
+            try {
+              sessionStorage.removeItem(INTENDED_KEY);
+            } catch {
+              /* ignore */
+            }
+            router.replace("/");
           } finally {
             setBusy(false);
           }
@@ -240,11 +248,18 @@ export function IdentityGate({ children }: { children: React.ReactNode }) {
         authMode: me.mode,
         switchIdentity: () => {
           if (me.mode === "google") {
+            clearLastHouse();
+            try {
+              sessionStorage.removeItem(INTENDED_KEY);
+            } catch {
+              /* ignore */
+            }
             void fetch("/api/identity/google", { method: "DELETE" }).finally(() => {
-              window.location.reload();
+              window.location.href = "/";
             });
             return;
           }
+          clearLastHouse();
           window.location.href = "/auth/logout";
         },
       }}

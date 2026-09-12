@@ -20,6 +20,16 @@ export function lastHouse(): string | null {
   }
 }
 
+export function clearLastHouse() {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.removeItem(KEY);
+    window.dispatchEvent(new Event(EVENT));
+  } catch {
+    /* private mode */
+  }
+}
+
 export function rememberWalk(propertyId: string, walkId: string) {
   if (typeof window === "undefined") return;
   try {

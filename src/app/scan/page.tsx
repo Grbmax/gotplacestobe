@@ -20,6 +20,7 @@ import {
 } from "@/lib/labels";
 import { KNOWN_SURFACES, coverageFromScans, nextBestSurface } from "@/lib/nextbest";
 import { scansForWalk, walkKindLabel } from "@/lib/walks";
+import { propertiesForRole } from "@/lib/persona";
 import type { Detection, Property, Scan, WalkKind } from "@/lib/types";
 
 export default function ScanPage() {
@@ -52,7 +53,10 @@ function ScanFlow() {
   const [ghostOn, setGhostOn] = useState(true);
   const [pickSurface, setPickSurface] = useState(false);
 
-  const scannableProperties = useMemo(() => (properties ?? []).filter((p) => !p.isSample), [properties]);
+  const scannableProperties = useMemo(
+    () => propertiesForRole(properties ?? [], identity.role).filter((p) => !p.isSample),
+    [properties, identity.role],
+  );
   const house = useMemo(
     () => scannableProperties.find((p) => p.id === requestedId) ?? null,
     [scannableProperties, requestedId],

@@ -8,6 +8,8 @@ import { HouseSelect } from "@/components/HouseSelect";
 import { IdentityChip } from "@/components/IdentityChip";
 import { OptimizeChart } from "@/components/OptimizeChart";
 import { rememberHouse } from "@/lib/activeHouse";
+import { useIdentity } from "@/lib/IdentityContext";
+import { isLandlordPortfolio } from "@/lib/persona";
 import { roomSurfaceLabel } from "@/lib/labels";
 import { coverageFromScans, nextBestSurface } from "@/lib/nextbest";
 import { cumulativeDefects, guidedOrder, guidedVsNaiveSummary, naiveOrder, totalDistinctDefects } from "@/lib/optimize";
@@ -16,6 +18,7 @@ import type { Property, Scan } from "@/lib/types";
 export default function OptimizePage() {
   const params = useParams<{ propertyId: string }>();
   const propertyId = params.propertyId;
+  const { identity } = useIdentity();
   const [property, setProperty] = useState<Property | null>(null);
   const [scans, setScans] = useState<Scan[]>([]);
   const [showNaive, setShowNaive] = useState(true);
@@ -58,6 +61,10 @@ export default function OptimizePage() {
   }
 
   if (status === "missing" || !property) {
+    return <HouseSelect intent="proof" />;
+  }
+
+  if (isLandlordPortfolio(property) && identity.role !== "owner") {
     return <HouseSelect intent="proof" />;
   }
 

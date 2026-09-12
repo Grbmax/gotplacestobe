@@ -4,6 +4,8 @@ import { runDetect } from "./detect";
 import { escalateDetections } from "./escalate";
 import { getTrainingFrameBytes, saveTrainingFrame } from "./frames";
 import { totalAffectedRatio } from "./mockMath";
+import { landlordPortfolioSeed } from "./landlordPortfolio";
+import { isLandlordPortfolio } from "./persona";
 import { displayAddress, fillCityContextFromNearbyHouses, lookupCityContext, placeKeyFromAddress } from "./pgh";
 import type { Property, Review, Role, Scan, SurfaceCoverage, Walk, WalkKind } from "./types";
 
@@ -99,46 +101,98 @@ function sampleSeed(): { property: Property; scans: Scan[] } {
 
 async function ensureSeed() {
   if (hasMongo()) {
-    if (mem.mongoSeeded) return;
-    const db = await getDb();
-    const count = await db.collection("properties").countDocuments();
-    if (count > 0) {
-      // Self-heal: an old seed run (before `isSample` existed on this schema) can leave
-      // the sample property without the flag, which silently defeats every guard that
-      // checks it — never scan onto it, never reuse it as an address match, etc.
-      await db
-        .collection<PropertyDoc>("properties")
-        .updateOne({ _id: SAMPLE_PROPERTY_ID }, { $set: { isSample: true } });
+    if (!mem.mongoSeeded) {
+      const db = await getDb();
+      const count = await db.collection("properties").countDocuments();
+      if (count > 0) {
+        // Self-heal: an old seed run (before `isSample` existed on this schema) can leave
+        // the sample property without the flag, which silently defeats every guard that
+        // checks it — never scan onto it, never reuse it as an address match, etc.
+        await db
+          .collection<PropertyDoc>("properties")
+          .updateOne({ _id: SAMPLE_PROPERTY_ID }, { $set: { isSample: true } });
+      } else {
+        const { property, scans } = sampleSeed();
+        try {
+          await db.collection<PropertyDoc>("properties").insertOne({
+            _id: property.id,
+            label: property.label,
+            kind: property.kind,
+            createdAt: property.createdAt,
+            placeKey: property.placeKey,
+            isSample: property.isSample,
+          });
+          await db.collection<ScanDoc>("scans").insertMany(
+            scans.map((s) => {
+              const { id, ...rest } = s;
+              return { _id: id, ...rest };
+            }),
+          );
+        } catch (err) {
+          if ((err as { code?: number }).code !== 11000) throw err;
+        }
+      }
       mem.mongoSeeded = true;
-      return;
     }
+    await ensureLandlordPortfolio();
+    return;
+  }
+  if (!mem.seeded) {
     const { property, scans } = sampleSeed();
+    mem.properties = [property];
+    mem.scans = scans;
+    mem.seeded = true;
+  }
+  await ensureLandlordPortfolio();
+}
+
+let landlordSeededThisInstance = false;
+
+async function ensureLandlordPortfolio() {
+  if (landlordSeededThisInstance) return;
+  const seeds = landlordPortfolioSeed();
+  if (!hasMongo()) {
+    for (const { property, scans } of seeds) {
+      if (!mem.properties.some((p) => p.id === property.id)) mem.properties.push(property);
+      else {
+        const i = mem.properties.findIndex((p) => p.id === property.id);
+        if (i >= 0) mem.properties[i] = { ...mem.properties[i]!, ...property, landlordPortfolio: true };
+      }
+      const have = new Set(mem.scans.filter((s) => s.propertyId === property.id).map((s) => s.id));
+      for (const scan of scans) {
+        if (!have.has(scan.id)) mem.scans.push(scan);
+      }
+    }
+    landlordSeededThisInstance = true;
+    return;
+  }
+  const db = await getDb();
+  for (const { property, scans } of seeds) {
+    const { id, ...rest } = property;
+    await db.collection<PropertyDoc>("properties").updateOne(
+      { _id: id },
+      {
+        $set: {
+          ...rest,
+          landlordPortfolio: true,
+        },
+      },
+      { upsert: true },
+    );
+    const existing = await db.collection<ScanDoc>("scans").countDocuments({ propertyId: id });
+    if (existing > 0) continue;
     try {
-      await db.collection<PropertyDoc>("properties").insertOne({
-        _id: property.id,
-        label: property.label,
-        kind: property.kind,
-        createdAt: property.createdAt,
-        placeKey: property.placeKey,
-        isSample: property.isSample,
-      });
       await db.collection<ScanDoc>("scans").insertMany(
         scans.map((s) => {
-          const { id, ...rest } = s;
-          return { _id: id, ...rest };
+          const { id: scanId, ...scanRest } = s;
+          return { _id: scanId, ...scanRest };
         }),
       );
     } catch (err) {
       if ((err as { code?: number }).code !== 11000) throw err;
     }
-    mem.mongoSeeded = true;
-    return;
   }
-  if (mem.seeded) return;
-  const { property, scans } = sampleSeed();
-  mem.properties = [property];
-  mem.scans = scans;
-  mem.seeded = true;
+  landlordSeededThisInstance = true;
 }
 
 function asProperty(doc: PropertyDoc): Property {
@@ -154,6 +208,7 @@ function asProperty(doc: PropertyDoc): Property {
     createdBy: doc.createdBy,
     createdByName: doc.createdByName,
     isSample: doc.isSample,
+    landlordPortfolio: doc.landlordPortfolio,
     walks: doc.walks,
   };
 }
@@ -252,7 +307,7 @@ async function consolidateDuplicateHouses() {
     // The sample property is fixed demo data — never a merge/keep candidate, and never
     // a deletion target. Without this, any real property sharing its address gets
     // silently deleted here (it always "loses" to the sample's seeded scan count).
-    if (p.isSample) continue;
+    if (p.isSample || isLandlordPortfolio(p)) continue;
     const key = addressKey(p);
     if (!key.split("|")[0]) continue;
     const list = groups.get(key) ?? [];
@@ -316,7 +371,9 @@ export async function createProperty(input: {
   // Never reuse the seeded sample property just because someone's real address
   // happens to normalize to the same key (e.g. typing "5614 Beacon St" again) —
   // that would silently hand them fixed demo data and block them from scanning.
-  const existing = (await listProperties()).find((p) => !p.isSample && addressKey(p) === placeKey);
+  const existing = (await listProperties()).find(
+    (p) => !p.isSample && !isLandlordPortfolio(p) && addressKey(p) === placeKey,
+  );
   if (existing) return { property: existing, reused: true };
 
   const cityContext = fillCityContextFromNearbyHouses(raw, await listProperties(), await lookupCityContext(raw));

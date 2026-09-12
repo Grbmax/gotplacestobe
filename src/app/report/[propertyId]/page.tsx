@@ -24,6 +24,7 @@ import {
 } from "@/lib/labels";
 import { cityContextNeedsRefresh } from "@/lib/dashboard";
 import { rememberHouse } from "@/lib/activeHouse";
+import { isLandlordPortfolio } from "@/lib/persona";
 import { guidedVsNaiveSummary, totalDistinctDefects } from "@/lib/optimize";
 import { civicAlong, surfaceTrend } from "@/lib/progression";
 import { scansForWalk, walkKindLabel, walksChronological } from "@/lib/walks";
@@ -75,6 +76,8 @@ export default function ReportPage() {
     const sData = (await sRes.json()) as { scans: Scan[] };
     setProperty(next);
     setScans(sData.scans ?? []);
+    const mockOnly = (sData.scans ?? []).length > 0 && (sData.scans ?? []).every((s) => s.detector === "mock");
+    setModelOnly(!mockOnly);
     rememberHouse(propertyId);
     const walks = next.walks ?? [];
     const latest = walksChronological(walks).at(-1);
@@ -161,6 +164,23 @@ export default function ReportPage() {
 
   if (status === "missing" || !property) {
     return <HouseSelect intent="report" />;
+  }
+
+  if (isLandlordPortfolio(property) && identity.role !== "owner") {
+    return (
+      <main className="mx-auto grid min-h-dvh max-w-md place-items-center px-5 pb-28 text-center">
+        <div>
+          <p className="text-[11px] font-medium tracking-[0.12em] text-emerald-700">CribCheck</p>
+          <h1 className="mt-2 text-2xl font-semibold tracking-tight">That file is in a landlord portfolio</h1>
+          <p className="mt-2 text-sm text-slate-500">
+            Switch to Landlord on the identity chip to open East End buildings. Renters stay on the shared house list.
+          </p>
+          <Link href="/" className="mt-6 inline-block rounded-full bg-emerald-600 px-6 py-3 text-sm font-semibold text-white">
+            Back to houses
+          </Link>
+        </div>
+      </main>
+    );
   }
 
   const photoCount = visibleScans.length;
@@ -339,6 +359,14 @@ export default function ReportPage() {
                 ? "Turn off the filter to see frames where no model ran."
                 : "Point the camera at paint, vents, and wet spots. County lead and housing records stay in the banner above."}
             </p>
+            {scans.length === 0 && (
+              <Link
+                href={`/scan?propertyId=${propertyId}`}
+                className="mt-4 inline-block rounded-full bg-emerald-600 px-4 py-2 text-xs font-semibold text-white"
+              >
+                Start a scan
+              </Link>
+            )}
           </div>
         )}
         {groups.map((g) => {

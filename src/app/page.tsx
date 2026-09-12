@@ -17,6 +17,7 @@ import {
 import { formatScanTime } from "@/lib/time";
 import { cityContextNeedsRefresh } from "@/lib/dashboard";
 import { rememberHouse } from "@/lib/activeHouse";
+import { isLandlordPortfolio, propertiesForRole } from "@/lib/persona";
 import type { Property } from "@/lib/types";
 
 const DEMO_PROPERTY_ID = "prop_sample_beacon";
@@ -40,8 +41,8 @@ function isStreetAddress(label: string) {
 }
 
 const HINT: Record<string, string> = {
-  tenant: "Houses is the file. Scan and Report each ask which address first.",
-  owner: "Tap a house to review it. Scan and Report still ask which address.",
+  tenant: "Every house on file is shared for the demo. Add an address if you want your own walk.",
+  owner: "Shared file plus your East End portfolio (Shadyside, Squirrel Hill, Oakland) — renters don’t see those.",
   inspector: "Select a file here, or open Report and pick the address you are signing.",
 };
 
@@ -49,7 +50,7 @@ export default function HomePage() {
   const { identity } = useIdentity();
   const router = useRouter();
   const [rows, setRows] = useState<Summary[] | null>(null);
-  const [filter, setFilter] = useState<Filter>("addresses");
+  const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
   const [activeId, setActiveId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
@@ -101,24 +102,30 @@ export default function HomePage() {
   const visible = useMemo(() => {
     if (!rows) return [];
     const q = query.trim().toLowerCase();
-    const mine = (r: Summary) => isDemoHouse(r.property) || r.property.createdBy === identity.id;
+    const scoped = rows.filter((r) => propertiesForRole([r.property], identity.role).length > 0);
+    const mine = (r: Summary) =>
+      isDemoHouse(r.property) ||
+      r.property.createdBy === identity.id ||
+      (identity.role === "owner" && isLandlordPortfolio(r.property));
     const pool =
       filter === "mine"
-        ? rows.filter(mine)
+        ? scoped.filter(mine)
         : filter === "addresses"
-          ? rows.filter((r) => mine(r) || isStreetAddress(r.property.label))
-          : rows;
+          ? scoped.filter((r) => mine(r) || isStreetAddress(r.property.label) || isLandlordPortfolio(r.property))
+          : scoped;
     const searched = q
       ? pool.filter(
           (r) =>
             r.property.label.toLowerCase().includes(q) ||
             (r.property.unit ?? "").toLowerCase().includes(q) ||
-            (r.property.cityContext?.zipCode ?? "").includes(q),
+            (r.property.cityContext?.zipCode ?? "").includes(q) ||
+            (r.property.cityContext?.neighborhood ?? "").toLowerCase().includes(q),
         )
       : pool;
     return [...searched].sort((a, b) => {
       const rank = (r: Summary) => {
         let n = 0;
+        if (isLandlordPortfolio(r.property) && identity.role === "owner") n += 10;
         if (r.property.createdBy === identity.id) n += 8;
         if (r.worsening) n += 4;
         if (r.scanCount > 0) n += 2;
@@ -130,7 +137,7 @@ export default function HomePage() {
       if (d !== 0) return d;
       return a.property.label.localeCompare(b.property.label);
     });
-  }, [rows, filter, query, identity.id]);
+  }, [rows, filter, query, identity.id, identity.role]);
 
   useEffect(() => {
     if (!visible.length) {
@@ -139,19 +146,9 @@ export default function HomePage() {
     }
     setActiveId((cur) => {
       if (cur && visible.some((r) => r.property.id === cur)) return cur;
-      return (
-        visible.find((r) => r.property.createdBy === identity.id && !isDemoHouse(r.property))?.property.id ??
-        visible.find((r) => !isDemoHouse(r.property))?.property.id ??
-        visible[0]!.property.id
-      );
+      return null;
     });
-  }, [visible, identity.id]);
-
-  useEffect(() => {
-    if (!activeId) return;
-    const row = visible.find((r) => r.property.id === activeId);
-    if (row && !isDemoHouse(row.property)) rememberHouse(activeId);
-  }, [activeId, visible]);
+  }, [visible]);
 
   const hiddenCount = rows ? rows.length - visible.length : 0;
 
@@ -224,7 +221,11 @@ export default function HomePage() {
           <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-8 text-center">
             <p className="text-sm text-slate-700">No houses in this view.</p>
             <p className="mt-1 text-xs text-slate-500">
-              {query ? "Clear search, or add this address." : "Add a rental address to start the walkthrough."}
+              {query
+                ? "Clear search, or add this address."
+                : identity.role === "owner"
+                  ? "Your shared file is empty — add a building, or wait for the East End portfolio to load."
+                  : "Nothing on file yet. Add a rental address to start a walkthrough — you won’t be dropped into someone else’s report."}
             </p>
             <button
               type="button"
@@ -242,7 +243,10 @@ export default function HomePage() {
               key={row.property.id}
               row={row}
               selected={row.property.id === activeId}
-              onSelect={() => setActiveId(row.property.id)}
+              onSelect={() => {
+                setActiveId(row.property.id);
+                if (!isDemoHouse(row.property)) rememberHouse(row.property.id);
+              }}
             />
           ))
         )}
@@ -315,9 +319,18 @@ function HouseCard({
                   Demo
                 </span>
               )}
+              {isLandlordPortfolio(property) && (
+                <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-800">
+                  Portfolio
+                </span>
+              )}
             </div>
             <p className="mt-1 text-xs text-slate-500">
-              {demo ? "Sample report — read-only" : `${kindLabel(property.kind)}${property.unit ? ` · Apt ${property.unit}` : ""}`}
+              {demo
+                ? "Sample report — read-only"
+                : isLandlordPortfolio(property)
+                  ? `${property.cityContext?.neighborhood ?? "Portfolio"} · ${kindLabel(property.kind)}`
+                  : `${kindLabel(property.kind)}${property.unit ? ` · Apt ${property.unit}` : ""}`}
             </p>
           </div>
           <div className="flex max-w-[44%] flex-col items-end gap-1">

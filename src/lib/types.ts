@@ -161,6 +161,8 @@ export type Property = {
   createdBy?: string;
   createdByName?: string;
   isSample?: boolean;
+  /** East End owner demo file — hidden from renter / inspector lists. */
+  landlordPortfolio?: boolean;
   unit?: string;
   placeKey?: string;
   cityContext?: CityContext;

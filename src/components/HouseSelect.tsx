@@ -5,7 +5,9 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { AddHouseSheet } from "@/components/AddHouseSheet";
 import { lastHouse, rememberHouse } from "@/lib/activeHouse";
+import { useIdentity } from "@/lib/IdentityContext";
 import { kindLabel } from "@/lib/labels";
+import { isLandlordPortfolio, propertiesForRole } from "@/lib/persona";
 import type { Property } from "@/lib/types";
 
 export type HouseSelectIntent = "scan" | "report" | "proof";
@@ -60,6 +62,7 @@ export function HouseSelect({
   onCreated?: (property: Property) => void;
 }) {
   const router = useRouter();
+  const { identity } = useIdentity();
   const copy = COPY[intent];
   const [loaded, setLoaded] = useState<Property[] | null>(housesProp ?? null);
   const [query, setQuery] = useState("");
@@ -86,9 +89,9 @@ export function HouseSelect({
   }, [lastIdProp]);
 
   const houses = useMemo(() => {
-    const list = loaded ?? [];
+    const list = propertiesForRole(loaded ?? [], identity.role);
     return intent === "scan" ? list.filter((p) => !isDemoHouse(p)) : list;
-  }, [loaded, intent]);
+  }, [loaded, intent, identity.role]);
 
   const lastId = remembered;
   const visible = useMemo(() => {
@@ -151,7 +154,20 @@ export function HouseSelect({
       <div className="mt-4 space-y-2">
         {visible.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-8 text-center">
-            <p className="text-sm text-slate-700">{houses.length === 0 ? "No houses on file yet." : "Nothing matches that search."}</p>
+            <p className="text-sm text-slate-700">
+              {houses.length === 0
+                ? intent === "report"
+                  ? "No reports to open yet."
+                  : intent === "scan"
+                    ? "No house to scan yet."
+                    : "No houses on file yet."
+                : "Nothing matches that search."}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              {houses.length === 0
+                ? "Add an address first. You won’t be sent into another person’s file."
+                : "Try a street name, or add this as a new house."}
+            </p>
             <button
               type="button"
               onClick={() => setAdding(true)}
@@ -176,9 +192,16 @@ export function HouseSelect({
                 {last && (
                   <p className="text-[10px] uppercase tracking-[0.16em] text-emerald-700">{copy.lastLabel}</p>
                 )}
+                {isLandlordPortfolio(property) && (
+                  <p className="text-[10px] uppercase tracking-[0.16em] text-emerald-700">Portfolio</p>
+                )}
                 <p className={`text-lg font-medium leading-snug ${last ? "mt-0.5" : ""}`}>{property.label}</p>
                 <p className="mt-1 text-xs text-slate-500">
-                  {demo ? "Sample report — read-only" : `${kindLabel(property.kind)}${property.unit ? ` · Apt ${property.unit}` : ""}`}
+                  {demo
+                    ? "Sample report — read-only"
+                    : isLandlordPortfolio(property)
+                      ? `${property.cityContext?.neighborhood ?? "East End"} · ${kindLabel(property.kind)}`
+                      : `${kindLabel(property.kind)}${property.unit ? ` · Apt ${property.unit}` : ""}`}
                 </p>
               </Link>
             );
