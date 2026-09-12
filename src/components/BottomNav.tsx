@@ -1,6 +1,8 @@
 "use client";
 
-export type AppTab = "map" | "post" | "active" | "you";
+import { useRouter } from "next/navigation";
+
+export type AppTab = "map" | "post" | "active" | "inspect" | "you";
 
 type Props = {
   tab: AppTab;
@@ -10,16 +12,27 @@ type Props = {
 };
 
 export function BottomNav({ tab, hasActive, remainingLabel, onChange }: Props) {
+  const router = useRouter();
+
   return (
-    <nav className="grid grid-cols-4 border-t border-paper/10 bg-ink/95 px-1 pb-[max(0.4rem,env(safe-area-inset-bottom))] pt-1.5 backdrop-blur">
+    <nav className="grid grid-cols-5 border-t border-paper/10 bg-ink/95 px-1 pb-[max(0.4rem,env(safe-area-inset-bottom))] pt-1.5 backdrop-blur">
       <NavBtn active={tab === "map"} onClick={() => onChange("map")} label="Map" icon="◎" />
-      <NavBtn active={tab === "post"} onClick={() => onChange("post")} label="Post" icon="＋" />
+      <NavBtn active={tab === "post"} onClick={() => onChange("post")} label="Ask AI" icon="✦" />
       <NavBtn
         active={tab === "active"}
         onClick={() => onChange("active")}
         label={hasActive && remainingLabel ? remainingLabel : "Active"}
         icon="◷"
         badge={hasActive}
+      />
+      <NavBtn
+        active={tab === "inspect"}
+        onClick={() => {
+          onChange("inspect");
+          router.push("/inspect");
+        }}
+        label="Inspect"
+        icon="▣"
       />
       <NavBtn active={tab === "you"} onClick={() => onChange("you")} label="You" icon="●" />
     </nav>

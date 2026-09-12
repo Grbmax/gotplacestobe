@@ -1,36 +1,28 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Got Places To Be (Quest)
 
-## Getting Started
+Campus favors that are too small to pay for — plus **Inspect**, a Gemini-first rental surface scan for mold, water seepage, cracks, peeling paint, and optional infestation signs.
 
-First, run the development server:
+## Run locally
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cp .env.example .env.local
+# fill GEMINI_API_KEY and MONGODB_URI
+npm install
+npm run dev -- -p 43127
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://127.0.0.1:43127](http://127.0.0.1:43127).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Inspect flow
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. Join / open the map as usual.
+2. Tap **Inspect** in the bottom nav (or go to `/inspect`).
+3. Add a stay/lease/sublet, open the scanner, tag room + surface, shutter.
+4. Gemini returns structured findings (mock fallback if the key is missing or the call fails).
+5. Past scans live on `/inspect/[propertyId]` with a light progression compare.
 
-## Learn More
+SCAN data is stored in a separate Mongo database name `scan` (`properties`, `scans`, `findings`) so Quest collections `users`, `quests`, and `transactions` stay untouched.
 
-To learn more about Next.js, take a look at the following resources:
+## Env
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+See `.env.example`. Never commit `.env` / `.env.local`.

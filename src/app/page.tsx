@@ -55,9 +55,12 @@ export default function LandingPage() {
             >
               Join nearby
             </Link>
-            <a href="#flow" className="rounded-full border border-ink/20 px-6 py-3 text-sm">
-              See the flow
-            </a>
+            <Link
+              href="/inspect"
+              className="rounded-full border border-ink/20 px-6 py-3 text-sm"
+            >
+              Inspect a stay
+            </Link>
           </div>
           <dl className="mt-12 grid max-w-lg grid-cols-3 gap-4 border-t border-ink/10 pt-6 text-sm">
             <div>
