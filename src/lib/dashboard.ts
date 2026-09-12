@@ -1,4 +1,5 @@
 import { citationLines } from "@/lib/articleVi";
+import { escalationSentence } from "@/lib/labels";
 import type { CityContext, DefectClass, EbllLevel, Scan } from "@/lib/types";
 
 export type Tone = "green" | "amber" | "rose" | "zinc";
@@ -177,7 +178,7 @@ export function dashboardTiles(context: CityContext | undefined, scans: Scan[]):
         ...scans
           .flatMap((s) => s.escalations ?? [])
           .slice(0, 3)
-          .map((e) => `${e.from} → ${e.to}: ${e.why}`),
+          .map((e) => escalationSentence(e)),
       ],
     });
   } else {

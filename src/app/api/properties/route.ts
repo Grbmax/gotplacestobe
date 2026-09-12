@@ -8,7 +8,13 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  const body = (await request.json()) as { label?: string; kind?: Property["kind"]; unit?: string };
+  const body = (await request.json()) as {
+    label?: string;
+    kind?: Property["kind"];
+    unit?: string;
+    createdBy?: string;
+    createdByName?: string;
+  };
   if (!body.label?.trim() || !body.kind) {
     return Response.json({ error: "Missing label or kind" }, { status: 400 });
   }
@@ -19,6 +25,8 @@ export async function POST(request: NextRequest) {
     label: body.label,
     kind: body.kind,
     unit: body.unit,
+    createdBy: body.createdBy,
+    createdByName: body.createdByName,
   });
   return Response.json({ property, reused });
 }

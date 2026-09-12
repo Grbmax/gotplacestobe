@@ -9,6 +9,8 @@ export async function POST(request: NextRequest, ctx: Ctx) {
   const body = (await request.json()) as {
     verdict?: Review["verdict"];
     reviewerRole?: Review["reviewerRole"];
+    reviewerId?: string;
+    reviewerName?: string;
     note?: string;
   };
   if (!body.verdict || !body.reviewerRole) {
@@ -23,6 +25,8 @@ export async function POST(request: NextRequest, ctx: Ctx) {
   const scan = await reviewScan(id, {
     verdict: body.verdict,
     reviewerRole: body.reviewerRole,
+    reviewerId: body.reviewerId,
+    reviewerName: body.reviewerName,
     note: body.note,
   });
   if (!scan) return Response.json({ error: "Not found" }, { status: 404 });

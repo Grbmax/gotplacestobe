@@ -1,4 +1,4 @@
-import type { CivicPulse, SurfaceCoverage } from "./types";
+import type { CivicPulse, Detection, Scan, SurfaceCoverage } from "./types";
 
 const PRIORS: Record<string, number> = {
   bathroom_ceiling: 0.95,
@@ -34,7 +34,10 @@ function priorRisk(surfaceKey: string) {
 }
 
 function coverageScore(scanCount: number) {
-  return Math.min(scanCount / 2, 1);
+  // Capped below 1 so a well-covered surface can never be fully zeroed out —
+  // otherwise recencyDecay could never bring it back into rotation after a
+  // long gap, even though "due for a recheck" is a reason string we actually emit.
+  return Math.min(scanCount / 2, 1) * 0.85;
 }
 
 function recencyDecay(lastScannedAt: string | null) {
@@ -43,15 +46,69 @@ function recencyDecay(lastScannedAt: string | null) {
   return Math.min(Math.max(hours, 0) / 168, 1);
 }
 
+/** The single most ambiguous confidence from the last read — near 0.5 means the model genuinely couldn't tell. */
+function mostAmbiguous(lastDetections: Detection[] | undefined): { confidence: number; ambiguity: number } | null {
+  if (!lastDetections?.length) return null;
+  let worst = lastDetections[0]!;
+  let worstAmbiguity = -1;
+  for (const d of lastDetections) {
+    const ambiguity = 1 - Math.abs(d.confidence - 0.5) * 2;
+    if (ambiguity > worstAmbiguity) {
+      worstAmbiguity = ambiguity;
+      worst = d;
+    }
+  }
+  return { confidence: worst.confidence, ambiguity: worstAmbiguity };
+}
+
+/** Ambiguous surfaces are worth revisiting, up to double their base value — a checklist doesn't do this, a planner does. */
+function uncertaintyBoost(lastDetections: Detection[] | undefined) {
+  const worst = mostAmbiguous(lastDetections);
+  return worst ? 1 + worst.ambiguity : 1;
+}
+
+const UNCERTAIN_THRESHOLD = 0.6; // ambiguity above this is worth calling out by name
+
 function reasonFor(cov: SurfaceCoverage | undefined, prior: number) {
   const bits: string[] = [];
-  if (!cov || cov.scanCount === 0) bits.push("never scanned");
-  else if (cov.scanCount < 2) bits.push("only one scan");
-  else bits.push("due for a recheck");
+  const ambiguous = mostAmbiguous(cov?.lastDetections);
+  if (ambiguous && ambiguous.ambiguity >= UNCERTAIN_THRESHOLD) {
+    bits.push(`Last read was uncertain (${ambiguous.confidence.toFixed(2)})`);
+  } else if (!cov || cov.scanCount === 0) {
+    bits.push("Never scanned");
+  } else if (cov.scanCount < 2) {
+    bits.push("Only one scan");
+  } else {
+    bits.push("Due for a recheck");
+  }
   if (prior >= 0.85) bits.push("high-risk surface");
   else if (prior >= 0.65) bits.push("elevated risk");
   else bits.push("routine check");
   return bits.join(" · ");
+}
+
+export function coverageFromScans(scans: Scan[]): SurfaceCoverage[] {
+  const map = new Map<string, SurfaceCoverage>();
+  for (const s of scans) {
+    const key = `${s.room}::${s.surface}`;
+    const cur = map.get(key);
+    if (!cur) {
+      map.set(key, {
+        room: s.room,
+        surface: s.surface,
+        lastScannedAt: s.capturedAt,
+        scanCount: 1,
+        lastDetections: s.detections,
+      });
+    } else {
+      cur.scanCount += 1;
+      if (s.capturedAt > cur.lastScannedAt) {
+        cur.lastScannedAt = s.capturedAt;
+        cur.lastDetections = s.detections;
+      }
+    }
+  }
+  return [...map.values()];
 }
 
 export function nextBestSurface(
@@ -75,7 +132,8 @@ export function nextBestSurface(
     }
     const coverage = coverageScore(cov?.scanCount ?? 0);
     const decay = recencyDecay(cov?.lastScannedAt ?? null);
-    const value = prior * (1 - coverage) * decay;
+    const uncertainty = uncertaintyBoost(cov?.lastDetections);
+    const value = prior * (1 - coverage) * decay * uncertainty;
     if (value > bestScore) {
       bestScore = value;
       best = s;

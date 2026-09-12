@@ -1,5 +1,13 @@
 export type DefectClass = "mold" | "water_seepage" | "crack" | "peeling_paint";
 
+export type Role = "tenant" | "owner" | "inspector";
+
+export type Identity = {
+  id: string;
+  name: string;
+  role: Role;
+};
+
 export type Detection = {
   cls: DefectClass;
   confidence: number;
@@ -122,6 +130,9 @@ export type Property = {
   label: string;
   kind: "lease" | "sublet" | "stay";
   createdAt: string;
+  createdBy?: string;
+  createdByName?: string;
+  isSample?: boolean;
   unit?: string;
   placeKey?: string;
   cityContext?: CityContext;
@@ -140,12 +151,16 @@ export type Scan = {
   detector: "gemini" | "mock";
   review?: Review;
   isSample?: boolean;
+  scannedBy?: string;
+  scannedByName?: string;
   escalations?: Escalation[];
 };
 
 export type Review = {
   verdict: "confirmed" | "disputed";
-  reviewerRole: "tenant" | "owner" | "inspector";
+  reviewerRole: Role;
+  reviewerId?: string;
+  reviewerName?: string;
   note?: string;
   at: string;
 };
@@ -155,4 +170,5 @@ export type SurfaceCoverage = {
   surface: string;
   lastScannedAt: string | null;
   scanCount: number;
+  lastDetections?: Detection[];
 };

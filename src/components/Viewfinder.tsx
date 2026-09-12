@@ -12,6 +12,8 @@ type Props = {
   resultDetections?: Detection[] | null;
   resultDetector?: "gemini" | "mock" | null;
   frozenUrl?: string | null;
+  /** Previous scan of this surface, shown faint over the live feed so the shot lines up. */
+  ghostUrl?: string | null;
 };
 
 export function Viewfinder({
@@ -20,8 +22,10 @@ export function Viewfinder({
   resultDetections,
   resultDetector,
   frozenUrl,
+  ghostUrl,
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -94,16 +98,61 @@ export function Viewfinder({
     };
   }, [started, analyzing, frozenUrl]);
 
+  function toJpegDataUrl(source: CanvasImageSource, width: number, height: number) {
+    // Cap the long edge — cheaper for Gemini and smaller when stored inline in Mongo.
+    const MAX_EDGE = 1440;
+    const scale = Math.min(1, MAX_EDGE / Math.max(width, height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(width * scale));
+    canvas.height = Math.max(1, Math.round(height * scale));
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL("image/jpeg", 0.85);
+  }
+
   function shutter() {
     const video = videoRef.current;
     if (!video || !video.videoWidth) return;
-    const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    ctx.drawImage(video, 0, 0);
-    onCapture(canvas.toDataURL("image/jpeg", 0.92));
+    const dataUrl = toJpegDataUrl(video, video.videoWidth, video.videoHeight);
+    if (dataUrl) onCapture(dataUrl);
+  }
+
+  async function onUploadFile(file: File | undefined) {
+    if (!file) return;
+    const looksImage =
+      file.type.startsWith("image/") || /\.(jpe?g|png|webp|gif|heic|heif)$/i.test(file.name);
+    if (!looksImage) {
+      setError("Please choose a photo (JPEG, PNG, or WebP).");
+      return;
+    }
+    setError(null);
+    try {
+      let dataUrl: string | null = null;
+      try {
+        const bitmap = await createImageBitmap(file);
+        try {
+          dataUrl = toJpegDataUrl(bitmap, bitmap.width, bitmap.height);
+        } finally {
+          bitmap.close();
+        }
+      } catch {
+        // HEIC / odd formats: fall back to FileReader (may still fail in some browsers).
+        dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result));
+          reader.onerror = () => reject(new Error("read failed"));
+          reader.readAsDataURL(file);
+        });
+        if (!dataUrl.startsWith("data:image/")) {
+          throw new Error("unsupported");
+        }
+      }
+      if (!dataUrl) throw new Error("empty");
+      onCapture(dataUrl);
+    } catch {
+      setError("Could not read that image. Try a JPEG or PNG export.");
+    }
   }
 
   const showResult = Boolean(frozenUrl && resultDetections);
@@ -111,34 +160,66 @@ export function Viewfinder({
 
   return (
     <div className="relative h-full w-full overflow-hidden bg-black" ref={wrapRef}>
-      {!started && !error && (
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*,.heic,.heif"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = "";
+          void onUploadFile(file).catch(() => setError("Could not read that image."));
+        }}
+      />
+
+      {!started && !error && !frozenUrl && (
         <div className="absolute inset-0 z-20 grid place-items-center bg-zinc-950 p-6 text-center text-white">
           <div>
-            <p className="text-lg font-medium">Camera required</p>
-            <p className="mt-2 text-sm text-white/60">Start the rear camera to aim and scan surfaces.</p>
-            <button
-              type="button"
-              onClick={startCamera}
-              className="mt-6 rounded-full bg-emerald-400 px-6 py-3 text-sm font-semibold text-black"
-            >
-              Start camera
-            </button>
+            <p className="text-lg font-medium">Scan a surface</p>
+            <p className="mt-2 text-sm text-white/60">
+              Use the camera, or upload a photo/frame for Gemini to label mold, water, cracks, and peeling.
+            </p>
+            <div className="mt-6 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
+              <button
+                type="button"
+                onClick={startCamera}
+                className="rounded-full bg-emerald-400 px-6 py-3 text-sm font-semibold text-black"
+              >
+                Start camera
+              </button>
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                className="rounded-full border border-zinc-600 px-6 py-3 text-sm font-semibold text-white"
+              >
+                Upload photo
+              </button>
+            </div>
           </div>
         </div>
       )}
 
-      {error && (
+      {error && !frozenUrl && (
         <div className="absolute inset-0 z-20 grid place-items-center bg-zinc-950 p-6 text-center text-white">
           <div>
             <p className="text-lg font-medium">Camera blocked</p>
             <p className="mt-2 text-sm text-white/60">{error}</p>
-            <button
-              type="button"
-              onClick={startCamera}
-              className="mt-6 rounded-full bg-emerald-400 px-6 py-3 text-sm font-semibold text-black"
-            >
-              Retry
-            </button>
+            <div className="mt-6 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
+              <button
+                type="button"
+                onClick={startCamera}
+                className="rounded-full bg-emerald-400 px-6 py-3 text-sm font-semibold text-black"
+              >
+                Retry camera
+              </button>
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                className="rounded-full border border-zinc-600 px-6 py-3 text-sm font-semibold text-white"
+              >
+                Upload photo instead
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -156,6 +237,16 @@ export function Viewfinder({
         />
       )}
 
+      {/* Line the shot up with last time — never blocks the shutter if it doesn't fit perfectly. */}
+      {ghostUrl && !frozenUrl && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={ghostUrl}
+          alt=""
+          className="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-30 mix-blend-luminosity"
+        />
+      )}
+
       {size.w > 0 && (
         <BoxOverlay
           detections={boxes}
@@ -166,25 +257,35 @@ export function Viewfinder({
       )}
 
       <div className="absolute left-3 top-3 z-10">
-        <DetectorBadge
-          detector={showResult && resultDetector ? resultDetector : analyzing ? "preview" : "preview"}
-        />
+        <DetectorBadge detector={showResult && resultDetector ? resultDetector : "preview"} />
       </div>
 
       {analyzing && (
         <div className="absolute inset-0 z-30 grid place-items-center bg-black/50">
-          <p className="rounded-full bg-white px-4 py-2 text-sm font-medium text-black">Analyzing…</p>
+          <p className="rounded-full bg-white px-4 py-2 text-sm font-medium text-black">
+            Analyzing with Gemini…
+          </p>
         </div>
       )}
 
       {started && !analyzing && !frozenUrl && (
-        <button
-          type="button"
-          onClick={shutter}
-          aria-label="Shutter"
-          className="absolute bottom-8 left-1/2 z-10 h-18 w-18 -translate-x-1/2 rounded-full border-4 border-white bg-white/90 shadow-lg"
-          style={{ height: 72, width: 72 }}
-        />
+        <div className="absolute bottom-8 left-1/2 z-10 flex -translate-x-1/2 items-center gap-4">
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            className="rounded-full border border-white/40 bg-black/50 px-4 py-2 text-xs font-medium text-white"
+          >
+            Upload
+          </button>
+          <button
+            type="button"
+            onClick={shutter}
+            aria-label="Shutter"
+            className="rounded-full border-4 border-white bg-white/90 shadow-lg"
+            style={{ height: 72, width: 72 }}
+          />
+          <span className="w-[4.5rem]" aria-hidden />
+        </div>
       )}
     </div>
   );

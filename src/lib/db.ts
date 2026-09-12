@@ -28,3 +28,9 @@ export async function getDb(): Promise<Db> {
   const client = await getClientPromise();
   return client.db("scan");
 }
+
+/** Isolated SCAN DB so inspect collections never collide with Quest. */
+export async function getScanDb(): Promise<Db> {
+  const client = await getClientPromise();
+  return client.db("scan");
+}
