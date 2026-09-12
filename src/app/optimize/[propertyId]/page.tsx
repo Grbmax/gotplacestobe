@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { BackLink } from "@/components/BackLink";
-import { IdentityChip } from "@/components/IdentityChip";
 import { OptimizeChart } from "@/components/OptimizeChart";
 import { roomSurfaceLabel } from "@/lib/labels";
 import { coverageFromScans, nextBestSurface } from "@/lib/nextbest";
@@ -52,7 +51,6 @@ export default function OptimizePage() {
     <main className="mx-auto min-h-dvh max-w-md px-5 pb-16 pt-8 text-white">
       <div className="flex items-center justify-between gap-3">
         <BackLink href={`/report/${propertyId}`}>Report</BackLink>
-        <IdentityChip />
       </div>
 
       <h1 className="mt-4 text-3xl font-semibold tracking-tight">Guided vs. naive</h1>

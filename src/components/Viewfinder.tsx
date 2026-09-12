@@ -231,14 +231,20 @@ export function Viewfinder({
         <img src={frozenUrl} alt="Frozen frame" className="absolute inset-0 h-full w-full object-cover" />
       )}
 
-      {/* Line the shot up with last time — never blocks the shutter if it doesn't fit perfectly. */}
+      {/* Previous shot of this surface, faint over the live feed so the next photo lines up. */}
       {ghostUrl && !frozenUrl && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={ghostUrl}
-          alt=""
-          className="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-30 mix-blend-luminosity"
-        />
+        <>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={ghostUrl}
+            alt="Last photo of this surface"
+            className="pointer-events-none absolute inset-0 z-[1] h-full w-full object-cover opacity-45"
+          />
+          <div className="pointer-events-none absolute inset-3 z-[1] rounded-2xl border-2 border-dashed border-white/70" />
+          <p className="pointer-events-none absolute bottom-28 left-1/2 z-[1] -translate-x-1/2 rounded-full bg-black/65 px-3 py-1 text-[11px] text-white">
+            Last photo — line this up
+          </p>
+        </>
       )}
 
       {size.w > 0 && (

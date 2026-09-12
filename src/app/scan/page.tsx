@@ -287,8 +287,9 @@ export default function ScanPage() {
                 </p>
               )}
               <p className="mt-3 text-sm font-medium text-emerald-200">
-                Now point at {roomSurfaceLabel(room, surface)}
+                Now point at recommended surface
               </p>
+              <p className="mt-1 text-sm text-emerald-100">{roomSurfaceLabel(room, surface)}</p>
               <button
                 type="button"
                 onClick={resumeLive}
